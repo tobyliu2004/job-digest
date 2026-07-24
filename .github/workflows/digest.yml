@@ -1,0 +1,79 @@
+name: Job Digest
+
+on:
+  # GitHub Actions cron is UTC-only and does NOT observe daylight saving, so a
+  # fixed pair of times would drift by an hour twice a year.
+  #
+  # Instead we fire at every UTC hour that could be 09:00 or 19:00 somewhere in
+  # the continental US, in either DST state, and let src/main.py decide which
+  # one is actually a send hour in the configured timezone. Every other slot
+  # exits in a couple of seconds.
+  #
+  #   09:00 local -> 13,14,15,16,17 UTC   (Eastern .. Pacific, EDT..PST)
+  #   19:00 local -> 23,00,01,02,03 UTC
+  #
+  # This means the workflow works for any US timezone without editing the cron.
+  schedule:
+    - cron: '0 0,1,2,3,13,14,15,16,17,23 * * *'
+
+  # Manual trigger for testing.
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Ignore the timezone gate and run now'
+        type: boolean
+        default: true
+      dry_run:
+        description: 'Scrape and log only - do not send email or save state'
+        type: boolean
+        default: false
+
+# Needed to commit state/seen.json back to the repo.
+permissions:
+  contents: write
+
+# Never let two runs race on the state file.
+concurrency:
+  group: job-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run digest
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT: ${{ secrets.RECIPIENT }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run --no-store"; fi
+          python -m src.main $ARGS
+
+      - name: Commit updated state
+        run: |
+          if [ -n "$(git status --porcelain state/)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state/
+            git commit -m "chore: update seen-jobs state [skip ci]"
+            # Another slot may have pushed while we ran; rebase and retry once.
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            git push
+          else
+            echo "No state change to commit."
+          fi

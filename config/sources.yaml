@@ -1,0 +1,208 @@
+# ============================================================================
+# Job Digest configuration
+#
+# Edit this file to change what gets scraped. Everything else is code.
+# ============================================================================
+
+# Your timezone. The digest sends at 09:00 and 19:00 local to this zone.
+# GitHub Actions cron is UTC-only, so main.py gates on this value instead.
+# Examples: America/Los_Angeles, America/New_York, America/Chicago, America/Denver
+timezone: America/Los_Angeles
+
+# Local hours (24h) at which a digest should send.
+send_hours: [9, 19]
+
+# ----------------------------------------------------------------------------
+# Simplify.jobs
+#
+# Backed by a public Typesense index. Each profile below reproduces one of the
+# three Simplify URLs exactly -- every URL filter maps to an index field.
+#
+# NOTE: the search key is a *public, search-only* scoped key lifted from
+# Simplify's own client bundle. If Simplify rotates it, requests start failing
+# with 401/403 and you re-extract it -- see README "Simplify key rotation".
+# ----------------------------------------------------------------------------
+simplify:
+  enabled: true
+  host: https://js-ha.simplify.jobs
+  fallback_hosts:
+    - https://js1.simplify.jobs
+    - https://js2.simplify.jobs
+    - https://js3.simplify.jobs
+  collection: jobs
+  api_key: "SWF1ODFZbzBkcVlVdnVwT2FqUE5EZ3JpSk5hVmdpUHg1SklXWEdGbHZVRT1POHJieyJleGNsdWRlX2ZpZWxkcyI6ImNvbXBhbnlfdXJsLGNhdGVnb3JpZXMsYWRkaXRpb25hbF9yZXF1aXJlbWVudHMsY291bnRyaWVzLGRlZ3JlZXMsZ2VvbG9jYXRpb25zLGluZHVzdHJpZXMsaXNfc2ltcGxlX2FwcGxpY2F0aW9uLGpvYl9saXN0cyxsZWFkZXJzaGlwX3R5cGUsc2VjdXJpdHlfY2xlYXJhbmNlLHNraWxscyx1cmwifQ=="
+
+  # Anchors used by every profile below (YAML anchors avoid repeating them).
+  _anchors:
+    categories: &categories
+      - Applied Machine Learning
+      - Conversational AI & Chatbots
+      - Robotics & Autonomous Systems
+      - Speech Recognition
+      - Deep Learning
+      - Natural Language Processing (NLP)
+      - Computer Vision
+      - AI Research
+      - Data Science
+      - AI & Machine Learning
+      - Quantitative Analysis
+      - Algorithm Development
+      - Quantitative Research
+      - Quantitative Trading
+      - Data Analysis
+      - Quantitative Finance
+      - Data Engineering
+      - Data & Analytics
+      - Software Engineering
+      - Low Level System Software
+      - Backend Engineering
+      - Full-Stack Engineering
+    majors: &majors
+      - Computer Science
+      - Electrical Engineering
+      - Mathematics
+      - Statistics
+      - Data Science
+      - Computer Engineering
+      - Applied Mathematics
+    experience: &experience
+      - Internship
+      - Entry Level/New Grad
+      - Junior
+    education: &education
+      - Bachelor's
+      - Master's
+
+  profiles:
+    # --- Simplify URL #1: majors filter, seasons through 2028 ---
+    - name: url1-majors-2027-2028
+      enabled: true
+      filters:
+        type: [Internship]
+        countries: [United States]
+        experience_level: *experience
+        functions: *categories
+        majors: *majors
+        degrees: *education
+        seasons:
+          - Summer 2027
+          - Winter 2027
+          - Spring 2027
+          - Fall 2027
+          - Winter 2028
+          - Summer 2028
+          - Spring 2028
+          - Fall 2028
+
+    # --- Simplify URL #2: NO majors filter (broader), 2027 seasons only ---
+    - name: url2-no-majors-2027
+      enabled: true
+      filters:
+        type: [Internship]
+        countries: [United States]
+        experience_level: *experience
+        functions: *categories
+        degrees: *education
+        seasons:
+          - Summer 2027
+          - Winter 2027
+          - Spring 2027
+          - Fall 2027
+
+    # --- Simplify URL #3: adds Software Development Management category ---
+    - name: url3-with-sdm
+      enabled: true
+      filters:
+        type: [Internship]
+        countries: [United States]
+        experience_level: *experience
+        functions:
+          - Applied Machine Learning
+          - Conversational AI & Chatbots
+          - Robotics & Autonomous Systems
+          - Speech Recognition
+          - Deep Learning
+          - Natural Language Processing (NLP)
+          - Computer Vision
+          - AI Research
+          - Data Science
+          - AI & Machine Learning
+          - Quantitative Analysis
+          - Algorithm Development
+          - Quantitative Research
+          - Quantitative Trading
+          - Data Analysis
+          - Quantitative Finance
+          - Data Engineering
+          - Data & Analytics
+          - Software Engineering
+          - Low Level System Software
+          - Backend Engineering
+          - Full-Stack Engineering
+          - Software Development Management
+        majors: *majors
+        degrees: *education
+        seasons:
+          - Summer 2027
+          - Winter 2027
+          - Spring 2027
+          - Fall 2027
+          - Winter 2028
+          - Spring 2028
+          - Summer 2028
+
+# ----------------------------------------------------------------------------
+# GitHub markdown job lists
+#
+# All three repos publish the same broad table shape, so one parser handles
+# them. Fetched from raw.githubusercontent.com, not the rendered HTML page.
+# ----------------------------------------------------------------------------
+github_lists:
+  enabled: true
+  sources:
+    - name: vanshb03-offseason
+      enabled: true
+      repo: vanshb03/Summer2027-Internships
+      branch: dev
+      path: OFFSEASON_README.md
+
+    # Extra list (not one of the 7 URLs given). Set enabled:false to drop.
+    - name: vanshb03-summer2027
+      enabled: true
+      repo: vanshb03/Summer2027-Internships
+      branch: dev
+      path: README.md
+
+    - name: sndsh404
+      enabled: true
+      repo: sndsh404/summer-2027-internships
+      branch: main
+      path: README.md
+
+    - name: speedyapply-intern-usa
+      enabled: true
+      repo: speedyapply/2027-SWE-College-Jobs
+      branch: main
+      path: README.md
+
+    # Extra list (not one of the 7 URLs given). Set enabled:false to drop.
+    - name: speedyapply-newgrad-usa
+      enabled: true
+      repo: speedyapply/2027-SWE-College-Jobs
+      branch: main
+      path: NEW_GRAD_USA.md
+
+# ----------------------------------------------------------------------------
+# LinkedIn
+#
+# The logged-out guest API works, but LinkedIn gates the external apply URL
+# behind a sign-in modal. These entries therefore link to LinkedIn and are
+# rendered in their own clearly-labelled email section.
+# ----------------------------------------------------------------------------
+linkedin:
+  enabled: true
+  keywords: software engineer
+  f_E: "1"          # experience level: internship
+  f_TPR: r86400     # posted in last 24h
+  sort_by: DD       # most recent first
+  max_pages: 6      # 25 results per page
