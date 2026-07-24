@@ -21,6 +21,10 @@
     [/jobs\.apple\.com\/[a-z-]+\/details\/(\d+)/i, (m) => `appl:${m[1]}`],
     [/metacareers\.com\/jobs\/(\d+)/i, (m) => `meta:${m[1]}`],
     [/smartrecruiters\.com\/[^/]+\/(\d+)/i, (m) => `sr:${m[1]}`],
+    [/([a-z0-9-]+)\.applytojob\.com\/apply\/([A-Za-z0-9]+)/i,
+      (m) => `atj:${m[1].toLowerCase()}:${m[2]}`],
+    [/ats\.rippling\.com\/(?:[a-z-]+\/)?([a-z0-9_.-]+)\/jobs\/([0-9a-f-]{36})/i,
+      (m) => `rip:${m[1].toLowerCase()}:${m[2].toLowerCase()}`],
     [/amazon\.jobs\/(?:[a-z-]+\/)?jobs\/(\d+)/i, (m) => `amzn:${m[1]}`],
     [/lifeattiktok\.com\/(?:search|position)\/(\d+)/i, (m) => `tt:${m[1]}`],
     [/jobs\.jobvite\.com\/[^/]+\/job\/([a-zA-Z0-9]+)/i, (m) => `jv:${m[1]}`],
@@ -45,11 +49,38 @@
     }
   }
 
-  // True only for a recognised ATS/job pattern — NOT the generic url: fallback.
-  // The banner appears only on real job pages, never on google.com etc.
+  // Broad job-application-host allowlist. Enumerating every ATS is whack-a-mole,
+  // so beyond the specific patterns above we also show the banner on any page
+  // whose host is a known ATS/job platform, or whose path clearly names an
+  // application. Better to occasionally show where not wanted (you can Dismiss)
+  // than to silently miss a real application page.
+  const JOB_HOST_RE = new RegExp(
+    [
+      "applytojob", "jazzhr", "myworkdayjobs", "myworkday", "workday",
+      "greenhouse", "lever\\.co", "ashbyhq", "rippling", "workable",
+      "bamboohr", "jobvite", "icims", "smartrecruiters", "taleo",
+      "successfactors", "paylocity", "paycomonline", "dayforce", "ultipro",
+      "breezy\\.hr", "recruitee", "teamtailor", "eightfold", "phenom",
+      "avature", "oraclecloud", "adp\\.com", "gr8people", "jobs\\.",
+      "careers\\.", "career\\.", "\\.wd\\d", "smartrecruiters",
+    ].join("|"),
+    "i"
+  );
+  // A path that names a specific application (not a listing landing page).
+  const JOB_PATH_RE = /\/(apply|jobs?|careers?|positions?|opening|requisition|vacancy)\//i;
+
+  // True on a recognised ATS/job page. The banner never shows on ordinary sites.
   function isJobPage(url) {
     const key = canonicalUrlKey(url);
-    return key !== "" && !key.startsWith("url:");
+    if (key && !key.startsWith("url:")) return true; // known ATS pattern
+    try {
+      const u = new URL(url);
+      if (JOB_HOST_RE.test(u.hostname)) return true;
+      if (JOB_PATH_RE.test(u.pathname)) return true;
+    } catch (e) {
+      /* not a parseable URL */
+    }
+    return false;
   }
 
   window.JobCanonical = { canonicalUrlKey, isJobPage };

@@ -48,6 +48,8 @@ class TestATSPatterns:
             ("https://jobs.apple.com/en-us/details/200664323-3810", "appl:200664323"),
             ("https://www.metacareers.com/jobs/2160167211413098", "meta:2160167211413098"),
             ("https://www.amazon.jobs/jobs/10481932/apply", "amzn:10481932"),
+            ("https://aapc.applytojob.com/apply/Bwioas9wbW/Junior-Salesforce-Developer", "atj:aapc:Bwioas9wbW"),
+            ("https://ats.rippling.com/en-GB/spreeai/jobs/c52472cb-2671-45d7-b666-17196dc3df25", "rip:spreeai:c52472cb-2671-45d7-b666-17196dc3df25"),
             ("https://lifeattiktok.com/search/7654431844394322229", "tt:7654431844394322229"),
             (
                 "https://www.linkedin.com/jobs/view/software-engineer-at-chaos-industries-4444729829",

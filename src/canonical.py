@@ -74,6 +74,16 @@ _ATS_PATTERNS: list[tuple[re.Pattern, callable]] = [
         re.compile(r"smartrecruiters\.com/[^/]+/(\d+)", re.I),
         lambda m: f"sr:{m.group(1)}",
     ),
+    # JazzHR (aapc.applytojob.com/apply/Bwioas9wbW/...)
+    (
+        re.compile(r"([a-z0-9-]+)\.applytojob\.com/apply/([A-Za-z0-9]+)", re.I),
+        lambda m: f"atj:{m.group(1).lower()}:{m.group(2)}",
+    ),
+    # Rippling ATS (ats.rippling.com/en-GB/spreeai/jobs/<uuid>)
+    (
+        re.compile(r"ats\.rippling\.com/(?:[a-z-]+/)?([a-z0-9_.-]+)/jobs/([0-9a-f-]{36})", re.I),
+        lambda m: f"rip:{m.group(1).lower()}:{m.group(2).lower()}",
+    ),
     (
         re.compile(r"amazon\.jobs/(?:[a-z-]+/)?jobs/(\d+)", re.I),
         lambda m: f"amzn:{m.group(1)}",
