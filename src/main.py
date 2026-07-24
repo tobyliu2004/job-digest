@@ -124,7 +124,10 @@ def should_run_now(config: dict) -> tuple[bool, datetime]:
     The workflow therefore fires at several candidate UTC hours and this gate
     decides which one is actually 09:00/19:00 in the configured local zone.
     """
-    tz = ZoneInfo(config.get("timezone", "America/Los_Angeles"))
+    # DIGEST_TZ (a GitHub Actions Variable / env var) overrides the config file,
+    # so you can change timezone without editing code -- useful when you move.
+    tz_name = os.environ.get("DIGEST_TZ") or config.get("timezone", "America/Los_Angeles")
+    tz = ZoneInfo(tz_name)
     now = datetime.now(tz)
     return now.hour in config.get("send_hours", [9, 19]), now
 
