@@ -147,6 +147,9 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="ignore the timezone gate")
     parser.add_argument("--verify-links", action="store_true", help="check apply links are direct")
     parser.add_argument("--test-email", action="store_true", help="send a sample digest")
+    parser.add_argument("--catchup", action="store_true",
+                        help="one-time: email ALL currently-open jobs as links, in batches, "
+                             "without changing dedup state")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -164,7 +167,7 @@ def main() -> int:
     if args.test_email:
         return _send_test_email(smtp_user, smtp_password, recipient, config)
 
-    if not (args.dry_run or args.force or args.verify_links):
+    if not (args.dry_run or args.force or args.verify_links or args.catchup):
         ok_now, now = should_run_now(config)
         if not ok_now:
             log.info(
@@ -191,6 +194,10 @@ def main() -> int:
     total_raw = sum(len(r.jobs) for r in results)
     log.info("Total scraped: %d | after cross-source dedup: %d (collapsed %d)",
              total_raw, len(unique), collapsed)
+
+    if args.catchup:
+        return _run_catchup(session, unique, failures, run_label(now),
+                            smtp_user, smtp_password, recipient)
 
     store = SeenStore(STATE_PATH)
     first_run = store.was_empty
@@ -252,6 +259,54 @@ def main() -> int:
     if not args.no_store:
         store.save()
 
+    return 0
+
+
+CATCHUP_BATCH = 150
+
+
+def _run_catchup(session, unique, failures, label, smtp_user, smtp_password, recipient) -> int:
+    """One-time: email every currently-open job as a real link, in batches.
+
+    Deliberately does NOT touch state/seen.json. The backlog is already
+    baselined there, so this send is a pure one-off and the twice-daily digest
+    keeps working unchanged afterward -- it still only sends genuinely new jobs.
+    """
+    if not (smtp_user and smtp_password and recipient):
+        log.error("Missing GMAIL_USER / GMAIL_APP_PASSWORD / RECIPIENT - cannot send.")
+        return 1
+
+    # Resolve every Simplify click-redirect to its real ATS URL before sending.
+    simplify_jobs = [j for j in unique if j.extra.get("simplify_id")]
+    if simplify_jobs:
+        log.info("Resolving %d Simplify apply links...", len(simplify_jobs))
+        simplify.resolve_apply_urls(session, simplify_jobs)
+
+    # Stable ordering: employer, then role. Split into batches so no single
+    # email is an unreadable wall of hundreds of links.
+    ordered = sorted(unique, key=lambda j: (j.indirect, j.company.lower(), j.title.lower()))
+    batches = [ordered[i:i + CATCHUP_BATCH] for i in range(0, len(ordered), CATCHUP_BATCH)]
+    total_parts = len(batches)
+    log.info("Catch-up: sending %d jobs across %d emails", len(ordered), total_parts)
+
+    for idx, batch in enumerate(batches, 1):
+        direct = [j for j in batch if not j.indirect]
+        indirect = [j for j in batch if j.indirect]
+        part_label = f"{label}  ·  Current openings, part {idx} of {total_parts}"
+        # Only surface source failures on the first email, not repeated on each.
+        batch_failures = failures if idx == 1 else []
+        html_body = email_render.render_html(direct, indirect, batch_failures, part_label)
+        text_body = email_render.render_text(direct, indirect, batch_failures, part_label)
+        subject = (
+            f"[Job Digest] Current openings ({idx}/{total_parts}) - {len(batch)} jobs"
+        )
+        email_render.send_email(
+            subject=subject, html_body=html_body, text_body=text_body,
+            smtp_user=smtp_user, smtp_password=smtp_password, recipient=recipient,
+        )
+        log.info("Sent catch-up email %d/%d (%d jobs)", idx, total_parts, len(batch))
+
+    log.info("Catch-up complete. State unchanged; normal digests continue as usual.")
     return 0
 
 
