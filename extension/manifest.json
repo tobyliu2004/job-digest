@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Job Digest — Already Applied?",
+  "version": "1.0.0",
+  "description": "Shows a banner on any job posting telling you whether you've already applied, so you never apply twice.",
+  "permissions": ["storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Job Digest — applied jobs"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["canonical.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { width: 340px; margin: 0; font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1a1d21; background: #fff; }
+    header { padding: 14px 16px 10px; border-bottom: 1px solid #e3e8ee; }
+    h1 { font-size: 15px; margin: 0; }
+    .count { color: #5c6670; font-size: 12px; margin-top: 2px; }
+    .list { max-height: 360px; overflow-y: auto; }
+    .item { padding: 10px 16px; border-bottom: 1px solid #f0f2f5; }
+    .item a { color: #2557d6; text-decoration: none; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item .meta { color: #5c6670; font-size: 11px; margin-top: 2px; display: flex; justify-content: space-between; }
+    .item .rm { color: #b91c1c; cursor: pointer; }
+    .empty { padding: 24px 16px; color: #5c6670; text-align: center; }
+    footer { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid #e3e8ee; }
+    button { font: 600 12px/1 inherit; border: 1px solid #d0d7de; background: #f6f8fa; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Jobs you've applied to</h1>
+    <div class="count" id="count"></div>
+  </header>
+  <div class="list" id="list"></div>
+  <footer>
+    <button id="export">Export</button>
+    <button id="import">Import</button>
+    <input type="file" id="file" accept="application/json" style="display:none" />
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>
