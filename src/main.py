@@ -153,9 +153,13 @@ def main() -> int:
     setup_logging(args.verbose)
     config = load_config()
 
-    smtp_user = os.environ.get("GMAIL_USER", "")
-    smtp_password = os.environ.get("GMAIL_APP_PASSWORD", "")
-    recipient = os.environ.get("RECIPIENT", "")
+    smtp_user = os.environ.get("GMAIL_USER", "").strip()
+    recipient = os.environ.get("RECIPIENT", "").strip()
+    # Gmail shows the app password as "xxxx xxxx xxxx xxxx". Copy-paste often
+    # brings the grouping spaces in as non-breaking spaces (\xa0), which SMTP's
+    # ascii auth cannot encode. The 16 characters are the password; strip ALL
+    # whitespace (regular and non-breaking) so a spaced paste just works.
+    smtp_password = "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
 
     if args.test_email:
         return _send_test_email(smtp_user, smtp_password, recipient, config)
