@@ -7,3 +7,7 @@ venv/
 *.egg-info/
 .DS_Store
 digest-preview.html
+
+# Your personal job-application list — never commit this (privacy).
+# state/seen.json IS committed (just job hashes, no personal info); applied.json is NOT.
+state/applied.json
