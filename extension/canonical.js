@@ -66,21 +66,17 @@
     ].join("|"),
     "i"
   );
-  // A path that names a specific application (not a listing landing page).
-  const JOB_PATH_RE = /\/(apply|jobs?|careers?|positions?|opening|requisition|vacancy)\//i;
-
-  // True on a recognised ATS/job page. The banner never shows on ordinary sites.
+  // True on a recognised ATS/job page. The manifest already restricts this
+  // script to load ONLY on job/ATS hosts, so we no longer match on arbitrary
+  // paths — just a real per-job ATS id, or (as a backstop) a known job host.
   function isJobPage(url) {
     const key = canonicalUrlKey(url);
     if (key && !key.startsWith("url:")) return true; // known ATS pattern
     try {
-      const u = new URL(url);
-      if (JOB_HOST_RE.test(u.hostname)) return true;
-      if (JOB_PATH_RE.test(u.pathname)) return true;
+      return JOB_HOST_RE.test(new URL(url).hostname);
     } catch (e) {
-      /* not a parseable URL */
+      return false;
     }
-    return false;
   }
 
   window.JobCanonical = { canonicalUrlKey, isJobPage };

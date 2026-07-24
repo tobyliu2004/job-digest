@@ -10,6 +10,10 @@ function fmtDate(iso) {
   } catch (e) { return iso; }
 }
 
+// The list is collapsed by default so it never grows into a huge wall once you
+// have hundreds of applications. "Show all" reveals the links on demand.
+let listExpanded = false;
+
 function render() {
   chrome.storage.local.get({ applied: {} }, (data) => {
     const entries = Object.entries(data.applied).sort(
@@ -19,6 +23,14 @@ function render() {
       `${entries.length} job${entries.length === 1 ? "" : "s"} tracked`;
 
     const list = document.getElementById("list");
+    const toggle = document.getElementById("toggleList");
+    toggle.style.display = entries.length ? "inline-block" : "none";
+    toggle.textContent = listExpanded ? "Hide list" : `Show all (${entries.length})`;
+    list.style.display = listExpanded ? "block" : "none";
+
+    // When collapsed, don't build the (potentially huge) list at all.
+    if (!listExpanded) return;
+
     if (!entries.length) {
       list.innerHTML =
         '<div class="empty">Nothing yet. Open a job posting and click ' +
@@ -47,6 +59,11 @@ function render() {
     });
   });
 }
+
+document.getElementById("toggleList").onclick = () => {
+  listExpanded = !listExpanded;
+  render();
+};
 
 document.getElementById("export").onclick = () => {
   chrome.storage.local.get({ applied: {} }, (data) => {

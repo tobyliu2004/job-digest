@@ -10,7 +10,37 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "comment": "Loads ONLY on known job/ATS hosts — never on your bank, email, or any other site.",
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.applytojob.com/*",
+        "https://ats.rippling.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.icims.com/*",
+        "https://*.jobvite.com/*",
+        "https://*.workable.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.breezy.hr/*",
+        "https://*.recruitee.com/*",
+        "https://*.teamtailor.com/*",
+        "https://*.amazon.jobs/*",
+        "https://jobs.apple.com/*",
+        "https://www.metacareers.com/*",
+        "https://careers.google.com/*",
+        "https://www.google.com/about/careers/*",
+        "https://lifeattiktok.com/*",
+        "https://www.linkedin.com/jobs/*",
+        "https://*.paylocity.com/*",
+        "https://*.taleo.net/*",
+        "https://*.successfactors.com/*",
+        "https://*.dayforcehcm.com/*",
+        "https://*.oraclecloud.com/*",
+        "https://*.eightfold.ai/*",
+        "https://*.gr8people.com/*"
+      ],
       "js": ["canonical.js", "keywords.js", "content.js"],
       "run_at": "document_idle"
     }

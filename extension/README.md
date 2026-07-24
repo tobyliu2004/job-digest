@@ -53,10 +53,24 @@ The popup (click the toolbar icon) lists everything you've applied to, with
 shape the command-line checker uses (`state/applied.json`), so you can move
 your applied list between the extension and the terminal tool.
 
+## Privacy
+
+- The extension **only loads on known job/ATS hosts** (Greenhouse, Lever,
+  Ashby, Workday, JazzHR/applytojob, Rippling, LinkedIn jobs, etc. — see the
+  `matches` list in `manifest.json`). It does **not** load on any other site —
+  not your bank, email, or social media. The script isn't even injected there.
+- It makes **no network requests**. Your resume text, applied list, and the job
+  descriptions it reads never leave your browser; everything is stored locally.
+- The applied-jobs list in the popup is collapsed by default ("Show all" to
+  expand), so it stays compact even after hundreds of applications.
+
 ## Limitations
 
 - Works on desktop browsers. It cannot run inside a phone app's in-app browser
   (e.g. tapping a link inside Instagram on your phone).
+- Because it's restricted to known ATS hosts, a company's bespoke careers page
+  on its own domain (not using a known ATS) won't show the banner. If you hit
+  one you want covered, add its host to `matches` in `manifest.json`.
 - It knows a job is "applied" only after you click **Mark as applied** — it
   can't detect an application you submitted without marking it.
 - The banner needs a recognised job/ATS URL. On a company's own bespoke careers
