@@ -18,6 +18,22 @@ different site than where you first saw it.
 - Your applied list is stored **locally in your browser** (`chrome.storage`),
   never uploaded anywhere.
 
+## Keyword extractor
+
+On any job page, the banner has a **🔑 Keywords** button. Click it and the
+extension reads the whole job description and pulls out the real tech keywords
+(languages, frameworks, tools, concepts) — entirely offline, nothing leaves
+your browser.
+
+If you paste your resume text into the extension popup once ("Your resume
+text" → Save resume), the panel then splits those keywords into:
+
+- **➕ Missing from your resume** — with a "Copy missing" button
+- **✓ Already in your resume**
+
+so you can decide what, if anything, to add. You revise your resume yourself —
+the extension only tells you what a given job emphasises.
+
 ## Install (Chrome, Edge, Brave, Arc — any Chromium browser)
 
 1. Go to `chrome://extensions`

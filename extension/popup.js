@@ -83,4 +83,21 @@ document.getElementById("file").onchange = (e) => {
   reader.readAsText(file);
 };
 
+// --- Resume text (used by the keyword panel) ---
+const resumeBox = document.getElementById("resume");
+const resumeStatus = document.getElementById("resumeStatus");
+
+chrome.storage.local.get({ resumeText: "" }, (d) => {
+  resumeBox.value = d.resumeText || "";
+  if (d.resumeText) resumeStatus.textContent = `saved (${d.resumeText.length} chars)`;
+});
+
+document.getElementById("saveResume").onclick = () => {
+  chrome.storage.local.set({ resumeText: resumeBox.value }, () => {
+    resumeStatus.textContent = resumeBox.value
+      ? `saved (${resumeBox.value.length} chars)`
+      : "cleared";
+  });
+};
+
 render();
