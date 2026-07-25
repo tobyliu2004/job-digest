@@ -35,6 +35,12 @@ class SeenStore:
         self.keys: dict[str, str] = {}
         self.last_run: str = ""
         self.was_empty: bool = True
+        # Local dates (YYYY-MM-DD) of the last AM / PM digest actually sent.
+        # Used to send a digest whenever it's *due and unsent*, rather than only
+        # at an exact minute -- so a delayed or dropped cron trigger can't skip
+        # a whole slot.
+        self.last_am_sent: str = ""
+        self.last_pm_sent: str = ""
         self._load()
 
     def _load(self) -> None:
@@ -52,6 +58,8 @@ class SeenStore:
 
         self.keys = data.get("keys", {}) or {}
         self.last_run = data.get("last_run", "")
+        self.last_am_sent = data.get("last_am_sent", "")
+        self.last_pm_sent = data.get("last_pm_sent", "")
         self.was_empty = not self.keys
         log.info("Loaded %d seen keys (last run: %s)", len(self.keys), self.last_run or "never")
 
@@ -84,6 +92,8 @@ class SeenStore:
         self.prune()
         payload = {
             "last_run": datetime.now(timezone.utc).isoformat(),
+            "last_am_sent": self.last_am_sent,
+            "last_pm_sent": self.last_pm_sent,
             "count": len(self.keys),
             "keys": self.keys,
         }

@@ -118,18 +118,52 @@ def dedupe(results: list[SourceResult]) -> tuple[list[Job], int]:
 # Timezone gate
 # --------------------------------------------------------------------------
 
-def should_run_now(config: dict) -> tuple[bool, datetime]:
-    """GitHub Actions cron is UTC-only and ignores DST.
-
-    The workflow therefore fires at several candidate UTC hours and this gate
-    decides which one is actually 09:00/19:00 in the configured local zone.
-    """
+def local_now(config: dict) -> datetime:
     # DIGEST_TZ (a GitHub Actions Variable / env var) overrides the config file,
     # so you can change timezone without editing code -- useful when you move.
     tz_name = os.environ.get("DIGEST_TZ") or config.get("timezone", "America/Los_Angeles")
-    tz = ZoneInfo(tz_name)
-    now = datetime.now(tz)
-    return now.hour in config.get("send_hours", [9, 19]), now
+    return datetime.now(ZoneInfo(tz_name))
+
+
+def window_slot(config: dict, now: datetime) -> str | None:
+    """Which send window the current local time falls in: 'AM', 'PM', or None."""
+    am_hour, pm_hour = config.get("send_hours", [9, 19])
+    if now.hour >= pm_hour:
+        return "PM"
+    if am_hour <= now.hour < pm_hour:
+        return "AM"
+    return None
+
+
+def due_slot(config: dict, now: datetime, store) -> str | None:
+    """Which digest is due right now and hasn't been sent yet today.
+
+    GitHub Actions cron is UTC-only, ignores DST, and -- critically -- routinely
+    delays or DROPS scheduled triggers (which is why a 7pm email can silently go
+    missing). So instead of firing only at an exact hour, we send whenever a slot
+    is *due and unsent*. Any run in the window sends the digest, so a missed
+    on-the-hour trigger is simply covered by the next run. Being "new since last
+    email", an evening digest also sweeps up anything a missed morning would have
+    carried -- nothing is lost.
+    """
+    slot = window_slot(config, now)
+    if slot is None:
+        return None
+    today = now.strftime("%Y-%m-%d")
+    if slot == "PM" and store.last_pm_sent != today:
+        return "PM"
+    if slot == "AM" and store.last_am_sent != today:
+        return "AM"
+    return None
+
+
+def mark_slot_sent(store, now: datetime, config: dict) -> None:
+    slot = window_slot(config, now)
+    today = now.strftime("%Y-%m-%d")
+    if slot == "AM":
+        store.last_am_sent = today
+    elif slot == "PM":
+        store.last_pm_sent = today
 
 
 def run_label(now: datetime) -> str:
@@ -167,16 +201,22 @@ def main() -> int:
     if args.test_email:
         return _send_test_email(smtp_user, smtp_password, recipient, config)
 
-    if not (args.dry_run or args.force or args.verify_links or args.catchup):
-        ok_now, now = should_run_now(config)
-        if not ok_now:
+    now = local_now(config)
+    store = SeenStore(STATE_PATH)
+    first_run = store.was_empty
+
+    # Scheduled runs only send when a digest is due and hasn't gone out yet.
+    scheduled = not (args.dry_run or args.force or args.verify_links or args.catchup)
+    if scheduled:
+        slot = due_slot(config, now, store)
+        if slot is None:
             log.info(
-                "Local time %s is not a send hour %s - exiting.",
-                now.strftime("%H:%M %Z"), config.get("send_hours"),
+                "Nothing due at local %s (AM sent: %s, PM sent: %s) - exiting.",
+                now.strftime("%H:%M %Z"),
+                store.last_am_sent or "never", store.last_pm_sent or "never",
             )
             return 0
-    else:
-        _, now = should_run_now(config)
+        log.info("Digest due: %s slot", slot)
 
     session = make_session()
 
@@ -198,9 +238,6 @@ def main() -> int:
     if args.catchup:
         return _run_catchup(session, unique, failures, run_label(now),
                             smtp_user, smtp_password, recipient)
-
-    store = SeenStore(STATE_PATH)
-    first_run = store.was_empty
 
     new_jobs = [j for j in unique if not store.has_any(canonical.keys_for(j))]
     log.info("New since last email: %d", len(new_jobs))
@@ -255,6 +292,10 @@ def main() -> int:
         subject=subject, html_body=html_body, text_body=text_body,
         smtp_user=smtp_user, smtp_password=smtp_password, recipient=recipient,
     )
+
+    # Record that this slot's digest has gone out, so later runs in the same
+    # window don't re-send. Only when this is (or falls in) a real send window.
+    mark_slot_sent(store, now, config)
 
     if not args.no_store:
         store.save()
@@ -404,7 +445,7 @@ def _send_test_email(smtp_user: str, smtp_password: str, recipient: str, config:
               "https://www.linkedin.com/jobs/view/software-engineer-web-layer-at-openai-4426686037",
               "LinkedIn", "San Francisco, CA", indirect=True)]
 
-    _, now = should_run_now(config)
+    now = local_now(config)
     label = run_label(now)
     email_render.send_email(
         subject="[Job Digest] Test - 3 sample postings",

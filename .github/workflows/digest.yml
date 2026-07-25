@@ -1,20 +1,19 @@
 name: Job Digest
 
 on:
-  # GitHub Actions cron is UTC-only and does NOT observe daylight saving, so a
-  # fixed pair of times would drift by an hour twice a year.
+  # GitHub Actions cron is UTC-only, ignores DST, and routinely DELAYS or DROPS
+  # scheduled triggers. To stay reliable we (a) fire many times across the
+  # morning and evening windows for any US timezone, at :09 and :39 to dodge the
+  # congested top of the hour, and (b) let src/main.py send whenever a digest is
+  # "due and not yet sent" (see due_slot). So a dropped on-the-hour trigger is
+  # simply covered by the next run in the window; nothing is skipped.
   #
-  # Instead we fire at every UTC hour that could be 09:00 or 19:00 somewhere in
-  # the continental US, in either DST state, and let src/main.py decide which
-  # one is actually a send hour in the configured timezone. Every other slot
-  # exits in a couple of seconds.
+  #   morning window (09:00-noon local) -> 13..19 UTC   (EDT .. PST)
+  #   evening window (19:00-23:00 local) -> 23..05 UTC
   #
-  #   09:00 local -> 13,14,15,16,17 UTC   (Eastern .. Pacific, EDT..PST)
-  #   19:00 local -> 23,00,01,02,03 UTC
-  #
-  # This means the workflow works for any US timezone without editing the cron.
+  # Runs outside a due window exit in a couple of seconds.
   schedule:
-    - cron: '0 0,1,2,3,13,14,15,16,17,23 * * *'
+    - cron: '9,39 0,1,2,3,4,5,13,14,15,16,17,18,19,23 * * *'
 
   # Manual trigger for testing.
   workflow_dispatch:
