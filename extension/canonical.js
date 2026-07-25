@@ -21,6 +21,7 @@
     [/jobs\.apple\.com\/[a-z-]+\/details\/(\d+)/i, (m) => `appl:${m[1]}`],
     [/metacareers\.com\/jobs\/(\d+)/i, (m) => `meta:${m[1]}`],
     [/smartrecruiters\.com\/[^/]+\/(\d+)/i, (m) => `sr:${m[1]}`],
+    [/[?&]gh_jid=(\d+)/i, (m) => `gh:jid:${m[1]}`],
     [/([a-z0-9-]+)\.applytojob\.com\/apply\/([A-Za-z0-9]+)/i,
       (m) => `atj:${m[1].toLowerCase()}:${m[2]}`],
     [/ats\.rippling\.com\/(?:[a-z-]+\/)?([a-z0-9_.-]+)\/jobs\/([0-9a-f-]{36})/i,

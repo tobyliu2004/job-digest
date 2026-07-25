@@ -74,6 +74,12 @@ _ATS_PATTERNS: list[tuple[re.Pattern, callable]] = [
         re.compile(r"smartrecruiters\.com/[^/]+/(\d+)", re.I),
         lambda m: f"sr:{m.group(1)}",
     ),
+    # Greenhouse embedded on a company's own domain
+    # (tower-research.com/open-positions/?gh_jid=8044334)
+    (
+        re.compile(r"[?&]gh_jid=(\d+)", re.I),
+        lambda m: f"gh:jid:{m.group(1)}",
+    ),
     # JazzHR (aapc.applytojob.com/apply/Bwioas9wbW/...)
     (
         re.compile(r"([a-z0-9-]+)\.applytojob\.com/apply/([A-Za-z0-9]+)", re.I),

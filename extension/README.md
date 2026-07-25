@@ -4,10 +4,27 @@ Shows a small banner on any job posting telling you whether you've already
 applied — so you never apply to the same job twice, even if you find it on a
 different site than where you first saw it.
 
+## How it detects a job page
+
+Rather than matching a fixed list of job sites (which always misses some), the
+extension figures out that a page is a job posting from the page itself, in
+this order:
+
+1. A known ATS URL pattern (Greenhouse, Lever, Ashby, Workday, `gh_jid=`, …) —
+   instant and gives a stable cross-site id.
+2. **Schema.org `JobPosting` structured data** — the machine-readable data
+   Google requires to list a job in search, which most job pages (including
+   company-hosted ones) emit.
+3. `og:type` = job.
+4. A content heuristic — an "Apply" button plus at least two job-description
+   sections (Responsibilities / Qualifications / Requirements / …).
+
+Because job boards often load content asynchronously, it also watches the page
+for a few seconds and re-checks. Tests for all of this are in `detect.test.js`.
+
 ## What it does
 
-- On a recognised job page (Greenhouse, Lever, Ashby, Workday, LinkedIn,
-  Google, Amazon, Apple, and more), a banner appears top-right:
+- On a detected job page, a banner appears top-right:
   - **○ Not applied yet** — with a "Mark as applied" button
   - **✗ Already applied** — with the date, and an "Unmark" button
 - On any non-job page, it stays completely silent.
@@ -55,12 +72,19 @@ your applied list between the extension and the terminal tool.
 
 ## Privacy
 
-- The extension **only loads on known job/ATS hosts** (Greenhouse, Lever,
-  Ashby, Workday, JazzHR/applytojob, Rippling, LinkedIn jobs, etc. — see the
-  `matches` list in `manifest.json`). It does **not** load on any other site —
-  not your bank, email, or social media. The script isn't even injected there.
-- It makes **no network requests**. Your resume text, applied list, and the job
-  descriptions it reads never leave your browser; everything is stored locally.
+The extension's strongest privacy property: it makes **no network requests at
+all**. Your resume text, your applied list, and the job descriptions it reads
+never leave your browser — everything is stored locally on your device. There
+is no code that could transmit anything.
+
+- It loads on all pages (so company-hosted job boards on their own domains are
+  covered), but it **only ever does anything on a recognised job posting** — on
+  any other page it computes the URL's job-id, sees it isn't a job, and stops.
+  It never reads page text except when you click the 🔑 Keywords button, which
+  only exists on job pages. With zero network calls, there is no path for your
+  data to leave the browser regardless of where the script runs.
+- Requests only the `storage` permission — no access to tabs, history, cookies,
+  or network.
 - The applied-jobs list in the popup is collapsed by default ("Show all" to
   expand), so it stays compact even after hundreds of applications.
 
@@ -68,9 +92,6 @@ your applied list between the extension and the terminal tool.
 
 - Works on desktop browsers. It cannot run inside a phone app's in-app browser
   (e.g. tapping a link inside Instagram on your phone).
-- Because it's restricted to known ATS hosts, a company's bespoke careers page
-  on its own domain (not using a known ATS) won't show the banner. If you hit
-  one you want covered, add its host to `matches` in `manifest.json`.
 - It knows a job is "applied" only after you click **Mark as applied** — it
   can't detect an application you submitted without marking it.
 - The banner needs a recognised job/ATS URL. On a company's own bespoke careers
