@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -85,6 +86,36 @@ def collect(session, config: dict) -> list[SourceResult]:
             results.append(SourceResult("LinkedIn", ok=False, error=str(exc)))
 
     return results
+
+
+# Titles that signal a NON-internship role (new grad / entry level / full time).
+_NEW_GRAD_RE = re.compile(
+    r"\b(new\s*grad(uate)?|graduate\s+(program|role|position|scheme)|\d{4}\s+grads?"
+    r"|associate|entry[\s-]?level|full[\s-]?time|staff|principal|senior|sr\.?|lead"
+    r"|trainee|volunteer|apprentice(ship)?)\b",
+    re.I,
+)
+_INTERN_RE = re.compile(r"intern|co-?op|co op", re.I)
+
+
+def is_internship(job: Job) -> bool:
+    """Best-effort 'is this an internship?' for intern-only mode.
+
+    LinkedIn's experience filter is noisy, so LinkedIn roles must explicitly say
+    intern/co-op. Other sources are internship-curated or Simplify type=Internship,
+    so we trust them unless the title clearly names a new-grad/full-time role.
+    """
+    title = job.title
+    if _INTERN_RE.search(title):
+        return True
+    if job.source == "LinkedIn":
+        return False  # no "intern" in title + noisy filter -> drop
+    return not _NEW_GRAD_RE.search(title)
+
+
+def filter_internships(jobs: list[Job]) -> tuple[list[Job], int]:
+    kept = [j for j in jobs if is_internship(j)]
+    return kept, len(jobs) - len(kept)
 
 
 def dedupe(results: list[SourceResult]) -> tuple[list[Job], int]:
@@ -234,6 +265,10 @@ def main() -> int:
     total_raw = sum(len(r.jobs) for r in results)
     log.info("Total scraped: %d | after cross-source dedup: %d (collapsed %d)",
              total_raw, len(unique), collapsed)
+
+    if config.get("intern_only"):
+        unique, dropped = filter_internships(unique)
+        log.info("Intern-only: dropped %d non-internship roles, %d remain", dropped, len(unique))
 
     if args.catchup:
         return _run_catchup(session, unique, failures, run_label(now),

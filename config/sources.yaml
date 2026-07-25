@@ -12,6 +12,12 @@ timezone: America/Los_Angeles
 # Local hours (24h) at which a digest should send.
 send_hours: [9, 19]
 
+# Internship-only mode. When true, new-grad / entry-level / full-time roles are
+# filtered out: LinkedIn results must say "intern"/"co-op", and any source's
+# obvious new-grad titles ("New Grad", "Graduate Program", "Associate", ...) are
+# dropped. Set false to also receive new-grad and entry-level roles.
+intern_only: true
+
 # ----------------------------------------------------------------------------
 # Simplify.jobs
 #
@@ -185,9 +191,10 @@ github_lists:
       branch: main
       path: README.md
 
-    # Extra list (not one of the 7 URLs given). Set enabled:false to drop.
+    # New-grad list — disabled because you're targeting internships only.
+    # Flip to true (and set intern_only: false above) to include new-grad roles.
     - name: speedyapply-newgrad-usa
-      enabled: true
+      enabled: false
       repo: speedyapply/2027-SWE-College-Jobs
       branch: main
       path: NEW_GRAD_USA.md
@@ -201,7 +208,7 @@ github_lists:
 # ----------------------------------------------------------------------------
 linkedin:
   enabled: true
-  keywords: software engineer
+  keywords: software engineer intern
   f_E: "1"          # experience level: internship
   f_TPR: r86400     # posted in last 24h
   sort_by: DD       # most recent first
