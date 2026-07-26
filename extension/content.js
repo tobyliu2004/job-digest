@@ -17,9 +17,16 @@
 (function () {
   const HOST_ID = "job-digest-banner-host";
   const PANEL_ID = "job-digest-keywords-host";
+  const MSG = "job-digest"; // tag on our postMessage payloads
 
   let jobKey = null; // canonical id for the detected job; set by detect()
   let started = false;
+
+  // The script runs in every frame (manifest all_frames). Only the top frame
+  // shows UI; embedded job frames (e.g. a Greenhouse iframe on a careers page)
+  // just relay their text up so keyword extraction can see the real description.
+  const IS_TOP = window === window.top;
+  const frameTexts = new Map(); // top frame only: frame-origin marker -> its text
 
   // ---- Detection ---------------------------------------------------------
 
@@ -133,11 +140,47 @@
     return true;
   }
 
-  // Initial attempt, then watch for async-loaded job content for ~10s.
-  if (!tryStart()) {
+  // ---- Cross-frame text relay --------------------------------------------
+  // A page like oldmissioncapital.com/careers loads the job description inside
+  // an embedded (cross-origin) frame, so the top frame's body has no keywords.
+  // Child frames post their text up; the top frame merges it in showKeywords().
+
+  function bodyText() {
+    return (document.body && (document.body.innerText || document.body.textContent)) || "";
+  }
+
+  if (IS_TOP) {
+    // Collect text pushed up from embedded frames. Accept only our own tagged,
+    // string payloads; ignore everything else (this makes no network calls).
+    window.addEventListener("message", (e) => {
+      const d = e.data;
+      if (!d || d.source !== MSG || d.kind !== "kw-frame" || typeof d.text !== "string") return;
+      if (d.text.trim()) frameTexts.set(String(e.origin) + "␟" + d.text.length, d.text);
+    });
+
+    // Banner: initial attempt, then watch for async-loaded job content for ~10s.
+    if (!tryStart()) {
+      let ticks = 0;
+      const obs = new MutationObserver(() => {
+        if (tryStart() || ++ticks > 60) obs.disconnect();
+      });
+      obs.observe(document.documentElement, { childList: true, subtree: true });
+      setTimeout(() => obs.disconnect(), 10000);
+    }
+  } else {
+    // Embedded frame: no UI, just relay text up. Post now and again as the
+    // frame's content loads in (job embeds render asynchronously).
+    const relay = () => {
+      const t = bodyText();
+      if (t.trim()) {
+        try { window.top.postMessage({ source: MSG, kind: "kw-frame", text: t }, "*"); } catch (e) {}
+      }
+    };
+    relay();
     let ticks = 0;
     const obs = new MutationObserver(() => {
-      if (tryStart() || ++ticks > 60) obs.disconnect();
+      relay();
+      if (++ticks > 60) obs.disconnect();
     });
     obs.observe(document.documentElement, { childList: true, subtree: true });
     setTimeout(() => obs.disconnect(), 10000);
@@ -224,7 +267,9 @@
     const old = document.getElementById(PANEL_ID);
     if (old) { old.remove(); return; }
 
-    const text = ((document.body && (document.body.innerText || document.body.textContent)) || "");
+    // Top-frame body plus any text relayed up from embedded job frames, so a
+    // description that lives inside an iframe still gets scanned.
+    const text = [bodyText(), ...frameTexts.values()].join("\n");
     const found = window.JobKeywords.extract(text);
 
     chrome.storage.local.get({ resumeText: "" }, (data) => {

@@ -7,7 +7,7 @@
 # Your timezone. The digest sends at 09:00 and 19:00 local to this zone.
 # GitHub Actions cron is UTC-only, so main.py gates on this value instead.
 # Examples: America/Los_Angeles, America/New_York, America/Chicago, America/Denver
-timezone: America/Los_Angeles
+timezone: America/New_York
 
 # Local hours (24h) at which a digest should send.
 send_hours: [9, 19]

@@ -10,8 +10,9 @@
   },
   "content_scripts": [
     {
-      "comment": "Loads on all pages so company-hosted job boards (e.g. a Greenhouse board embedded on tower-research.com) are covered. It only ever DOES anything on a recognised job posting (see isJobPage), and makes zero network calls, so nothing ever leaves the browser.",
+      "comment": "Loads on all pages AND embedded frames so company-hosted job boards (e.g. a Greenhouse board embedded via an iframe on oldmissioncapital.com) are covered -- the job description often lives in the frame, not the top page. The banner renders only in the top frame; child frames just pass their text up for keyword extraction. Makes zero network calls, so nothing ever leaves the browser.",
       "matches": ["<all_urls>"],
+      "all_frames": true,
       "js": ["canonical.js", "keywords.js", "content.js"],
       "run_at": "document_idle"
     }
