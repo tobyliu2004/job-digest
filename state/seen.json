@@ -1,5 +1,5 @@
 {
- "count": 1853,
+ "count": 1857,
  "keys": {
   "ab:abridge:7d6ae2be-cd53-466c-8151-2dae2e87aace": "2026-07-24T19:18:38.031373+00:00",
   "ab:antares:11da51b3-7969-4549-a32f-21d8b699e216": "2026-07-24T19:18:38.029093+00:00",
@@ -420,6 +420,7 @@
   "id:boeing|associate software engineer|omaha ne": "2026-07-24T19:18:38.030482+00:00",
   "id:booz allen|c software engineer junior|beavercreek oh": "2026-07-24T19:18:38.034565+00:00",
   "id:booz allen|software engineer junior|albuquerque nm": "2026-07-24T19:18:38.029592+00:00",
+  "id:bosch|adas software engineering|plymouth mi": "2026-07-29T15:17:04.095223+00:00",
   "id:bosch|hardware embedded research|sunnyvale ca": "2026-07-24T19:18:38.027308+00:00",
   "id:bosch|powertrain controls software engineering 6 months|farmington hills mi": "2026-07-28T15:28:59.404958+00:00",
   "id:brex|enterprise account executive i embedded finance|san francisco ca 1": "2026-07-24T19:18:38.036116+00:00",
@@ -989,6 +990,7 @@
   "id:simplisafe|software engineer i device control|boston ma": "2026-07-24T19:18:38.032284+00:00",
   "id:singapore public service|lecturer cloud management operations ite college east 2 year contract|college ak": "2026-07-24T19:18:38.033051+00:00",
   "id:sixtyfour x25|full stack software engineering|san francisco ca": "2026-07-24T19:18:38.018897+00:00",
+  "id:sk hynix memory solutions america|software engineer|san jose ca": "2026-07-29T15:17:04.095389+00:00",
   "id:skydio|software engineer|san mateo ca": "2026-07-24T19:18:38.018379+00:00",
   "id:skyworks|analog ic design co op|irvine ca": "2026-07-24T19:18:38.022543+00:00",
   "id:snowflake|software engineer core engineering|menlo park ca bellevue wa": "2026-07-24T19:18:38.018260+00:00",
@@ -1222,6 +1224,7 @@
   "li:4426999956": "2026-07-26T16:11:29.744414+00:00",
   "li:4427140818": "2026-07-25T03:34:46.489743+00:00",
   "li:4432730084": "2026-07-24T19:18:38.036596+00:00",
+  "li:4436128010": "2026-07-29T15:17:04.095389+00:00",
   "li:4436401788": "2026-07-25T03:34:46.490877+00:00",
   "li:4438062970": "2026-07-27T00:09:26.022439+00:00",
   "li:4438491981": "2026-07-24T19:18:38.036623+00:00",
@@ -1299,6 +1302,7 @@
   "sr:744000138728139": "2026-07-27T15:49:24.708916+00:00",
   "sr:744000139649345": "2026-07-27T15:49:24.708688+00:00",
   "sr:744000140089589": "2026-07-28T15:28:59.404958+00:00",
+  "sr:744000140317669": "2026-07-29T15:17:04.095223+00:00",
   "tt:7624284785283746053": "2026-07-24T19:18:38.026014+00:00",
   "tt:7629187524074342709": "2026-07-24T19:18:38.024968+00:00",
   "tt:7629248119245261061": "2026-07-24T19:18:38.024946+00:00",
@@ -1855,7 +1859,7 @@
   "wd:req25807": "2026-07-24T19:18:38.030968+00:00",
   "wd:req25831": "2026-07-24T19:18:38.024733+00:00"
  },
- "last_am_sent": "2026-07-28",
+ "last_am_sent": "2026-07-29",
  "last_pm_sent": "2026-07-28",
- "last_run": "2026-07-29T00:06:29.557347+00:00"
+ "last_run": "2026-07-29T15:17:06.037796+00:00"
 }
