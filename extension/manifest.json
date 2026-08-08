@@ -3,6 +3,7 @@
   "name": "Job Digest — Already Applied?",
   "version": "1.0.0",
   "description": "Shows a banner on any job posting telling you whether you've already applied, so you never apply twice.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwVZUIx3q8i+SFcaTk/2+6yksvdthcZEXTgNTnGvfAsWjieSXHtx8OAELwqitu/OX5ZMtS09pNC4FuyuibEXHI9v77BuW7dS6gJTX7DJnfC/V9Cu700qVdREEaF1PH7t8V3EEp0U3XHVRWXTIlHZMaZQRqHwvCg5/L2iZgbbu/dKPAImdQdfuQAlonVs9ewz7AgSFOX0J5BEP6qhKAtSPWCWJSe/+8bXq0CUSs/qS20siLLoRf/h9BX6fF2ye1lBrf3j+xjQOgbQzy5dqOxPJU6hhh7l+0FsqabI0MbRQpIRwwp49C5goXQ5XdXLCxwfLwDiOgg11C8AGHW3gYsOZ3QIDAQAB",
   "permissions": ["storage"],
   "action": {
     "default_popup": "popup.html",

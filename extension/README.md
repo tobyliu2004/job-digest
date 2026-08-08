@@ -96,3 +96,18 @@ is no code that could transmit anything.
   can't detect an application you submitted without marking it.
 - The banner needs a recognised job/ATS URL. On a company's own bespoke careers
   page with no known ATS pattern, it stays silent rather than guess.
+
+## Why manifest.json has a `key`
+
+Chrome derives an unpacked extension's ID from its **folder path**. So when this
+repo was renamed (`~/job email` -> `~/job digest`) Chrome could no longer find
+the extension, silently dropped it, and orphaned its stored applied-jobs data
+under the old ID.
+
+The `key` field pins the ID to `pephgdhbpdmimmgikggfmpenlgcchkmo` no matter where
+the folder lives, so moving or renaming the repo can never orphan your data again.
+
+If you ever do lose the extension, the data isn't gone — it's in
+`~/Library/Application Support/Google/Chrome/Default/Local Extension Settings/<old-id>/`.
+Reload the extension, quit Chrome, and copy that folder's contents over the new
+ID's folder.
