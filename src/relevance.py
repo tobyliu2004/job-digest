@@ -123,6 +123,64 @@ LOW_SIGNAL_TITLE = re.compile(
 )
 
 
+# Roles that are adjacent to tech but are not software/ML/quant-engineering
+# work. These reach the digest almost entirely through LinkedIn, whose search
+# has no category filter -- a "data science intern" query returns actuarial and
+# equity-research internships, and "summer analyst technology" returns banking.
+#
+# Matched only against LinkedIn results. Simplify applies its own `functions`
+# filter and the GitHub lists are hand-curated, so applying this to them would
+# risk dropping real roles for a stray word in a long title.
+NON_TECH_ROLE = re.compile(
+    r"\b(actuar(y|ial)|equity\s+research|private\s+equity|real\s+estate|"
+    r"investment(s)?\s+(intern|intern(ship)?|analyst|banking)|investment\s+banking|"
+    r"wealth\s+management|portfolio\s+management|underwrit|"
+    r"financial\s+risk|credit\s+risk|risk\s+management|"
+    r"biometrics|clinical|biostatist|regulatory\s+affairs|"
+    r"accounting|audit(ing|or)?|tax\b|treasury|"
+    r"human\s+resources|recruit(ing|er)|talent\s+acquisition|"
+    r"supply\s+chain|procurement|logistics|"
+    r"sales\b|business\s+development|public\s+relations|"
+    r"pension|insurance\s+(intern|analyst))\b",
+    re.I,
+)
+
+# For LinkedIn, a title must name software/ML/quant-engineering work outright.
+# The broad TECH_TITLE list is too permissive without a source-side category
+# filter behind it -- "technology", "technical" and "systems" appear in plenty
+# of finance and operations internships.
+STRONG_TECH_TITLE = re.compile(
+    r"\b("
+    r"software|swe\b|developer|programm|"
+    r"machine\s*learning|\bml\b|\bai\b|artificial\s+intelligence|"
+    r"deep\s*learning|reinforcement\s*learning|\bnlp\b|computer\s*vision|\bllm\b|"
+    r"data\s*(scien|engineer)|"
+    r"quant(itative)?\s+(research|trading|develop|analy)|quantitative\s+\w+\s+intern|"
+    r"back\s*-?end|front\s*-?end|full\s*-?stack|web\s+develop|"
+    r"comput(er|ing)\s+scien|algorithm|compiler|robotics|embedded|firmware|"
+    r"infrastructure|platform\s+engineer|distributed\s+systems|"
+    r"security\s+engineer|cyber\s*security|devops|\bsre\b|site\s+reliability|"
+    r"ios\s+develop|android\s+develop|mobile\s+develop|"
+    r"engineer(ing)?\s+intern|intern.{0,12}\bengineer"
+    r")\b",
+    re.I,
+)
+
+
+def is_linkedin_noise(job) -> bool:
+    """LinkedIn has no category filter, so it needs one applied here.
+
+    Every other source gates by category before we ever see the posting.
+    LinkedIn's guest search matches keywords loosely, so broadening the queries
+    to stop missing software roles also pulled in actuarial, equity-research
+    and investments internships.
+    """
+    title = job.title or ""
+    if NON_TECH_ROLE.search(title):
+        return True
+    return not STRONG_TECH_TITLE.search(title)
+
+
 def is_obvious_noise(job) -> bool:
     """A posting that names no technical work at all, from any source.
 
@@ -162,6 +220,11 @@ def filter_jobs(jobs: list) -> tuple[list, int, int]:
     """Apply noise filtering. Returns (kept, dropped_noise, dropped_untagged)."""
     kept, noise, untagged = [], 0, 0
     for j in jobs:
+        # LinkedIn is the only source with no category filter behind it.
+        if j.indirect and is_linkedin_noise(j):
+            noise += 1
+            continue
+
         if j.unconfirmed:
             if is_relevant(j):
                 kept.append(j)

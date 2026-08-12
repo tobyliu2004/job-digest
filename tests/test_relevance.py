@@ -88,6 +88,52 @@ class TestUntaggedBucketDropsNoise:
         assert not is_relevant(job("SharkNinja", "Codeshark", unconfirmed=True))
 
 
+class TestLinkedInNeedsItsOwnCategoryGate:
+    """Every other source filters by category before we see a posting.
+    LinkedIn's guest search matches loosely, so broadening the queries to stop
+    missing software roles also pulled in finance internships."""
+
+    def test_finance_roles_are_dropped(self):
+        for company, title in [
+            ("Milliman", "Actuarial Intern"),
+            ("Principal Financial Group", "Actuarial Internship (Summer 2027)"),
+            ("Truist", "2027 Truist Securities - Equity Research"),
+            ("Knowhere", "Private Equity/Real Estate Internship"),
+            ("Nationwide", "Summer 2027 Investments Internship"),
+            ("Denali Therapeutics", "Intern, Biometrics"),
+            ("Metropolitan Transportation", "Pension Finance & Data Integrity Intern"),
+        ]:
+            j = job(company, title, indirect=True)
+            kept, noise, _ = filter_jobs([j])
+            assert kept == [] and noise == 1, title
+
+    def test_real_software_roles_survive(self):
+        for company, title in [
+            ("ByteDance", "Software Engineer Intern (AML-Engine-Orchestration)"),
+            ("IBM", "Federal Developer Intern 2027"),
+            ("BUILT Biotechnologies", "Software Engineer, Internal Platforms"),
+            ("MeeBoss", "Full Stack Software Engineer Intern"),
+            ("Morningstar", "Internship Program - Quantitative Research"),
+            ("UCI-OC Alliance", "2027 Quantitative Developer Intern"),
+            ("Sargent & Lundy", "AI & Automation Intern (Summer 2027)"),
+        ]:
+            kept, _, _ = filter_jobs([job(company, title, indirect=True)])
+            assert len(kept) == 1, title
+
+    def test_vague_technology_titles_do_not_pass_on_linkedin(self):
+        """"Technology"/"technical" appear in plenty of finance internships,
+        so they are not sufficient on a source with no category filter."""
+        kept, _, _ = filter_jobs([job("Some Bank", "Technology Analyst Intern",
+                                      indirect=True)])
+        assert kept == []
+
+    def test_the_gate_applies_only_to_linkedin(self):
+        """Simplify and the GitHub lists are already category-filtered;
+        applying this to them could drop a real role for a stray word."""
+        kept, _, _ = filter_jobs([job("Marshall Wace", "Technology Intern")])
+        assert len(kept) == 1
+
+
 class TestFilterAccounting:
     def test_counts_separate_junk_from_untagged_drops(self):
         jobs = [
