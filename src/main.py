@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import canonical, email_render
+from . import canonical, email_render, relevance
 from .http import make_session
 from .models import Job, SourceResult
 from .scrapers import github_md, linkedin, simplify, simplify_repo
@@ -324,6 +324,13 @@ def main() -> int:
     if config.get("intern_only"):
         unique, dropped = filter_internships(unique)
         log.info("Intern-only: dropped %d non-internship roles, %d remain", dropped, len(unique))
+
+    if config.get("filter_noise", True):
+        unique, noise, untagged = relevance.filter_jobs(unique)
+        log.info(
+            "Noise filter: dropped %d non-technical titles and %d untagged postings "
+            "from unrecognised employers, %d remain", noise, untagged, len(unique),
+        )
 
     if args.catchup:
         return _run_catchup(session, unique, failures, run_label(now),

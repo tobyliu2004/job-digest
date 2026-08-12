@@ -17,6 +17,23 @@ send_hours: [9, 19]
 # delivered with the next digest, so a posting that drops at 10:14am is caught
 # within the hour instead of waiting for the next 12-hourly scrape.
 
+# Noise filter. Widening the sources to stop missing postings also let in
+# listings worth nobody's time -- campus student-worker jobs, baristas, and
+# untagged postings from companies no one has heard of. When true:
+#
+#   * any posting whose title names no technical work at all is dropped
+#   * a posting whose SEASON IS UNTAGGED is kept only if its employer is one
+#     worth not missing (see NOTABLE_EMPLOYERS in src/relevance.py)
+#
+# Postings whose season IS tagged are never touched -- they already passed a
+# category filter at the source, and they are the bulk of every digest.
+#
+# On a live run this dropped 9 non-technical titles and 92 untagged postings
+# from unrecognised employers, while keeping the untagged ByteDance, Jane
+# Street, Anthropic, Point72, Zoox, Prime Intellect and Elicit listings.
+# Set false to see everything the sources return.
+filter_noise: true
+
 # Internship-only mode. When true, new-grad / entry-level / full-time roles are
 # filtered out: LinkedIn results must say "intern"/"co-op", and any source's
 # obvious new-grad titles ("New Grad", "Graduate Program", "Associate", ...) are
