@@ -11,9 +11,23 @@ on:
   #   morning window (09:00-noon local) -> 13..19 UTC   (EDT .. PST)
   #   evening window (19:00-23:00 local) -> 23..05 UTC
   #
-  # Runs outside a due window exit in a couple of seconds.
+  # Every 30 minutes, all day. EMAIL VOLUME IS UNCHANGED -- still exactly two a
+  # day, at send_hours in config/sources.yaml. An off-hour run only scrapes and
+  # banks what it finds in state/seen.json's `pending` queue, so a posting that
+  # drops at 10:14am is captured by 10:39 rather than waiting for the 7pm run.
+  #
+  # Two chances per hour is deliberate and load-bearing, not just for latency.
+  # Observed on 2026-08-11: the 13:09 UTC trigger did not fire at all, and the
+  # morning digest went out over an hour late -- GitHub drops scheduled runs
+  # routinely. Every extra slot in a send window is another chance for a due
+  # digest to go out, because `due_slot` sends whenever a slot is due and
+  # unsent. Thinning this to hourly would make a dropped trigger cost a full
+  # hour instead of 30 minutes.
+  #
+  # To go back to scraping only in the send windows, restore:
+  #   - cron: '9,39 0,1,2,3,4,5,13,14,15,16,17,18,19,23 * * *'
   schedule:
-    - cron: '9,39 0,1,2,3,4,5,13,14,15,16,17,18,19,23 * * *'
+    - cron: '9,39 * * * *'
 
   # Manual trigger for testing.
   workflow_dispatch:

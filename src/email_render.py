@@ -87,8 +87,10 @@ def _section_html(title: str, subtitle: str, jobs: list) -> str:
   </table>"""
 
 
-def render_html(direct_jobs: list, linkedin_jobs: list, failures: list[str], run_label: str) -> str:
-    total = len(direct_jobs) + len(linkedin_jobs)
+def render_html(direct_jobs: list, linkedin_jobs: list, unconfirmed_jobs: list,
+                failures: list[str], run_label: str) -> str:
+    unconfirmed_jobs = unconfirmed_jobs or []
+    total = len(direct_jobs) + len(linkedin_jobs) + len(unconfirmed_jobs)
 
     if total == 0:
         body = f"""
@@ -105,6 +107,11 @@ def render_html(direct_jobs: list, linkedin_jobs: list, failures: list[str], run
             "LinkedIn",
             "LinkedIn hides employer apply links from logged-out visitors, so these open on LinkedIn.",
             linkedin_jobs,
+        ) + _section_html(
+            "Season not confirmed",
+            "The source has not tagged a season yet, so these could not be verified as 2027 "
+            "roles. New postings are often untagged, so they are shown rather than dropped.",
+            unconfirmed_jobs,
         )
 
     warn = ""
@@ -130,15 +137,18 @@ def render_html(direct_jobs: list, linkedin_jobs: list, failures: list[str], run
     {body}
     {warn}
     <div style="font:400 11px/1.6 -apple-system,sans-serif;color:{_MUTED};margin-top:26px;text-align:center;">
-      Job Digest &middot; 7 sources &middot; deduplicated against every previous email
+      Job Digest &middot; deduplicated against every previous email
     </div>
   </td></tr>
 </table>
 </div>"""
 
 
-def render_text(direct_jobs: list, linkedin_jobs: list, failures: list[str], run_label: str) -> str:
-    lines = [f"{len(direct_jobs) + len(linkedin_jobs)} new postings", run_label, ""]
+def render_text(direct_jobs: list, linkedin_jobs: list, unconfirmed_jobs: list,
+                failures: list[str], run_label: str) -> str:
+    unconfirmed_jobs = unconfirmed_jobs or []
+    total = len(direct_jobs) + len(linkedin_jobs) + len(unconfirmed_jobs)
+    lines = [f"{total} new postings", run_label, ""]
 
     def block(title: str, jobs: list):
         if not jobs:
@@ -155,8 +165,9 @@ def render_text(direct_jobs: list, linkedin_jobs: list, failures: list[str], run
 
     block("Direct Apply", direct_jobs)
     block("LinkedIn (opens on LinkedIn)", linkedin_jobs)
+    block("Season not confirmed (untagged by the source)", unconfirmed_jobs)
 
-    if not direct_jobs and not linkedin_jobs:
+    if not total:
         lines.append("No new postings this run.")
         lines.append("")
 

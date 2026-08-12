@@ -41,6 +41,11 @@ class SeenStore:
         # a whole slot.
         self.last_am_sent: str = ""
         self.last_pm_sent: str = ""
+        # Jobs found by an hourly scrape that has no digest due yet. They are
+        # already recorded in `keys` (so they are never found "new" twice), so
+        # without this queue an off-hour run would swallow them entirely.
+        # Serialized Job dicts; see Job.to_dict.
+        self.pending: list[dict] = []
         self._load()
 
     def _load(self) -> None:
@@ -60,8 +65,12 @@ class SeenStore:
         self.last_run = data.get("last_run", "")
         self.last_am_sent = data.get("last_am_sent", "")
         self.last_pm_sent = data.get("last_pm_sent", "")
+        self.pending = data.get("pending", []) or []
         self.was_empty = not self.keys
-        log.info("Loaded %d seen keys (last run: %s)", len(self.keys), self.last_run or "never")
+        log.info(
+            "Loaded %d seen keys, %d pending (last run: %s)",
+            len(self.keys), len(self.pending), self.last_run or "never",
+        )
 
     def has_any(self, keys: list[str]) -> bool:
         """True if ANY key was seen before. A job is new only if none match."""
@@ -95,6 +104,7 @@ class SeenStore:
             "last_am_sent": self.last_am_sent,
             "last_pm_sent": self.last_pm_sent,
             "count": len(self.keys),
+            "pending": self.pending,
             "keys": self.keys,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)

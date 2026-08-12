@@ -173,9 +173,110 @@ def parse_markdown(text: str, source_name: str) -> list[Job]:
     return jobs
 
 
+# --------------------------------------------------------------------------
+# HTML tables
+#
+# These lists are maintained by hand and their markup is not stable. The Pitt
+# CSC repo moved from `| Company | Role |` pipe-tables to HTML <table> markup,
+# and a pipe-only parser reads that as zero jobs -- no error, no warning, the
+# source just quietly stops contributing. Handling both shapes removes that
+# failure mode; `fetch_one` also raises when a source yields nothing, so a
+# third format would surface as a reported failure rather than silence.
+# --------------------------------------------------------------------------
+
+_TABLE = re.compile(r"<table\b.*?</table>", re.I | re.S)
+_ROW = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.I | re.S)
+_CELL = re.compile(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", re.I | re.S)
+
+
+def parse_html_tables(text: str, source_name: str) -> list[Job]:
+    jobs: list[Job] = []
+    skipped_closed = 0
+
+    for table in _TABLE.findall(text):
+        columns: dict[str, int] | None = None
+        last_company = ""
+
+        for row in _ROW.findall(table):
+            cells = _CELL.findall(row)
+            if not cells:
+                continue
+
+            lowered = [_cell_text(c).lower() for c in cells]
+            if any(h == "company" for h in lowered):
+                columns = {}
+                for idx, name in enumerate(lowered):
+                    for key, field in _HEADER_MAP.items():
+                        if key in name and field not in columns:
+                            columns[field] = idx
+                            break
+                last_company = ""
+                continue
+
+            if not columns or "apply" not in columns or "company" not in columns:
+                continue
+
+            def get(field: str) -> str:
+                idx = columns.get(field)
+                return cells[idx] if idx is not None and idx < len(cells) else ""
+
+            if any(marker in row for marker in _CLOSED_MARKERS):
+                skipped_closed += 1
+                continue
+
+            company_raw = _cell_text(get("company"))
+            if company_raw.startswith(_CARRY) or not company_raw:
+                company = last_company
+            else:
+                company = company_raw
+                last_company = company
+
+            title = _cell_text(get("title"))
+            apply_url = _cell_link(get("apply"))
+
+            if not company or not title or not apply_url:
+                continue
+
+            jobs.append(
+                Job(
+                    company=company,
+                    title=title,
+                    apply_url=apply_url,
+                    source=source_name,
+                    location=_cell_text(get("location")),
+                    salary=_cell_text(get("salary")),
+                    posted=_cell_text(get("posted")),
+                )
+            )
+
+    if skipped_closed:
+        log.info("%s: skipped %d closed postings", source_name, skipped_closed)
+    return jobs
+
+
+def parse(text: str, source_name: str) -> list[Job]:
+    """Parse whichever table shape the document actually uses."""
+    jobs = parse_markdown(text, source_name)
+    if not jobs and "<table" in text.lower():
+        jobs = parse_html_tables(text, source_name)
+        if jobs:
+            log.info("%s: parsed as HTML tables", source_name)
+    return jobs
+
+
 def fetch_one(session, source: dict) -> list[Job]:
     url = RAW_URL.format(repo=source["repo"], branch=source["branch"], path=source["path"])
     text = get_text(session, url)
-    jobs = parse_markdown(text, source["name"])
+    jobs = parse(text, source["name"])
+
+    # A list that parses to nothing has almost certainly changed format rather
+    # than genuinely emptied. Raising makes it a reported source failure
+    # instead of a silent 0 that looks like "no new jobs today".
+    if not jobs:
+        raise ValueError(
+            f"{source['name']}: fetched {len(text)} bytes from {url} but parsed 0 "
+            f"postings -- the list's table format has probably changed."
+        )
+
     log.info("%s: %d postings", source["name"], len(jobs))
     return jobs

@@ -75,29 +75,65 @@ def _parse_page(markup: str) -> list[Job]:
     return jobs
 
 
-def fetch(session, cfg: dict) -> list[Job]:
-    seen_urls: set[str] = set()
+def _keyword_list(cfg: dict) -> list[str]:
+    """Config accepts either a single keyword string or a list of them."""
+    kw = cfg.get("keywords", "software engineer intern")
+    if isinstance(kw, str):
+        return [kw]
+    return [k for k in kw if k]
+
+
+class _Budget:
+    """Shared request budget across all keyword queries.
+
+    Each query paginates until exhausted, so without a shared ceiling a day
+    with many postings could issue hundreds of requests and hit both the job
+    timeout and LinkedIn's throttle.
+    """
+
+    def __init__(self, limit: int):
+        self.remaining = limit
+
+    def take(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
+def _fetch_query(session, cfg: dict, keyword: str, seen_urls: set[str],
+                 budget: _Budget) -> tuple[list[Job], bool]:
+    """Paginate one keyword query. Returns (jobs, hit_hard_failure)."""
     jobs: list[Job] = []
-    max_pages = int(cfg.get("max_pages", 6))
+    max_pages = int(cfg.get("max_pages", 25))
+    delay = float(cfg.get("page_delay_seconds", 1.2))
     offset = 0
 
     for page in range(max_pages):
+        if not budget.take():
+            log.info("LinkedIn: request budget spent, stopping at '%s'", keyword)
+            break
+
         params = {
-            "keywords": cfg.get("keywords", "software engineer"),
+            "keywords": keyword,
             "f_E": cfg.get("f_E", "1"),
             "f_TPR": cfg.get("f_TPR", "r86400"),
             "sortBy": cfg.get("sort_by", "DD"),
             "start": str(offset),
         }
+        if cfg.get("geo_id"):
+            params["geoId"] = str(cfg["geo_id"])
+
         resp = request(session, "GET", SEARCH_URL, params=params, timeout=30)
 
         if resp.status_code == 429:
-            log.warning("LinkedIn rate-limited at page %d; keeping %d jobs", page, len(jobs))
+            log.warning("LinkedIn rate-limited on '%s' at page %d", keyword, page)
             break
         if resp.status_code != 200:
             if page == 0:
-                raise RuntimeError(f"LinkedIn returned HTTP {resp.status_code}")
-            log.warning("LinkedIn HTTP %d at page %d; stopping", resp.status_code, page)
+                return jobs, True
+            log.warning("LinkedIn HTTP %d on '%s' at page %d; stopping",
+                        resp.status_code, keyword, page)
             break
 
         page_jobs = _parse_page(resp.text)
@@ -115,11 +151,37 @@ def fetch(session, cfg: dict) -> list[Job]:
         # Advance by what we actually got, never by an assumed page size.
         offset += len(page_jobs)
 
-        # LinkedIn repeats the last page instead of returning empty.
-        if new_this_page == 0:
+        # LinkedIn repeats the last page instead of returning empty. Only stop
+        # on a page that was entirely duplicate *within this query* -- across
+        # queries heavy overlap is expected and must not end pagination early.
+        if new_this_page == 0 and offset >= len(page_jobs) * 2:
             break
 
-        time.sleep(1.5)
+        time.sleep(delay)
 
-    log.info("LinkedIn: %d postings", len(jobs))
+    return jobs, False
+
+
+def fetch(session, cfg: dict) -> list[Job]:
+    seen_urls: set[str] = set()
+    jobs: list[Job] = []
+    keywords = _keyword_list(cfg)
+    budget = _Budget(int(cfg.get("max_total_requests", 90)))
+    hard_failures = 0
+
+    for keyword in keywords:
+        found, failed = _fetch_query(session, cfg, keyword, seen_urls, budget)
+        if failed:
+            hard_failures += 1
+            log.warning("LinkedIn query '%s' failed on its first page", keyword)
+        else:
+            log.info("LinkedIn['%s']: %d new unique", keyword, len(found))
+        jobs.extend(found)
+
+    # Only a total wipeout is a source failure. If some queries returned
+    # results, a throttled one must not discard the rest of the run.
+    if hard_failures == len(keywords):
+        raise RuntimeError(f"LinkedIn: all {len(keywords)} queries failed")
+
+    log.info("LinkedIn: %d unique postings across %d queries", len(jobs), len(keywords))
     return jobs

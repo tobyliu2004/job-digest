@@ -12,6 +12,11 @@ timezone: America/New_York
 # Local hours (24h) at which a digest should send.
 send_hours: [9, 19]
 
+# Sources are scraped every hour, but email still goes out only at send_hours.
+# Anything found in between is held in state/seen.json's `pending` queue and
+# delivered with the next digest, so a posting that drops at 10:14am is caught
+# within the hour instead of waiting for the next 12-hourly scrape.
+
 # Internship-only mode. When true, new-grad / entry-level / full-time roles are
 # filtered out: LinkedIn results must say "intern"/"co-op", and any source's
 # obvious new-grad titles ("New Grad", "Graduate Program", "Associate", ...) are
@@ -79,17 +84,28 @@ simplify:
       - Bachelor's
       - Master's
 
+  # Every filter below is an AND-gate against Simplify's own tagging, so each
+  # one can only ever REMOVE postings. Measured against the live index on
+  # 2026-08-10, for US internships in the categories above with 2027 seasons:
+  #
+  #     327  no majors/degrees requirement
+  #     261  + degrees=[Bachelor's, Master's]     <- lost 66 real postings
+  #     255  + majors=[CS, EE, Math, ...]         <- lost 6 more
+  #
+  # A posting is excluded not for being the wrong degree but for having no
+  # degree tagged at all, which is common on brand-new entries. Both filters
+  # are therefore gone; `type`, `countries`, `functions` and `seasons` are the
+  # only gates left. `experience_level` was dropped too -- every posting under
+  # type=Internship already has experience_level=Internship, so it filtered
+  # nothing while adding another way to be wrongly excluded.
   profiles:
-    # --- Simplify URL #1: majors filter, seasons through 2028 ---
-    - name: url1-majors-2027-2028
+    # --- 2027 and 2028 seasons, the roles actually being targeted ---
+    - name: us-intern-2027-2028
       enabled: true
       filters:
         type: [Internship]
         countries: [United States]
-        experience_level: *experience
         functions: *categories
-        majors: *majors
-        degrees: *education
         seasons:
           - Summer 2027
           - Winter 2027
@@ -100,62 +116,67 @@ simplify:
           - Spring 2028
           - Fall 2028
 
-    # --- Simplify URL #2: NO majors filter (broader), 2027 seasons only ---
-    - name: url2-no-majors-2027
+    # --- Untagged season ---
+    # 5,983 US internships in the index carry season "N/A", and new postings
+    # are the likeliest to be untagged -- exactly the ones this digest exists
+    # to catch. They cannot be confirmed as 2027 roles, so they are collected
+    # and flagged; the email puts them in their own section.
+    - name: us-intern-untagged-season
       enabled: true
+      unconfirmed: true
       filters:
         type: [Internship]
         countries: [United States]
-        experience_level: *experience
         functions: *categories
-        degrees: *education
+        seasons: ["N/A"]
+
+    # --- No country tag ---
+    # Dropping `countries` raises the 2027 count by ~43. Some of those are
+    # foreign, but some are US-remote postings with no country tagged. Caught
+    # here and flagged rather than lost to the countries gate.
+    - name: intern-untagged-country
+      enabled: true
+      unconfirmed: true
+      filters:
+        type: [Internship]
+        functions: *categories
         seasons:
           - Summer 2027
           - Winter 2027
           - Spring 2027
           - Fall 2027
 
-    # --- Simplify URL #3: adds Software Development Management category ---
-    - name: url3-with-sdm
-      enabled: true
-      filters:
-        type: [Internship]
-        countries: [United States]
-        experience_level: *experience
-        functions:
-          - Applied Machine Learning
-          - Conversational AI & Chatbots
-          - Robotics & Autonomous Systems
-          - Speech Recognition
-          - Deep Learning
-          - Natural Language Processing (NLP)
-          - Computer Vision
-          - AI Research
-          - Data Science
-          - AI & Machine Learning
-          - Quantitative Analysis
-          - Algorithm Development
-          - Quantitative Research
-          - Quantitative Trading
-          - Data Analysis
-          - Quantitative Finance
-          - Data Engineering
-          - Data & Analytics
-          - Software Engineering
-          - Low Level System Software
-          - Backend Engineering
-          - Full-Stack Engineering
-          - Software Development Management
-        majors: *majors
-        degrees: *education
-        seasons:
-          - Summer 2027
-          - Winter 2027
-          - Spring 2027
-          - Fall 2027
-          - Winter 2028
-          - Spring 2028
-          - Summer 2028
+# ----------------------------------------------------------------------------
+# Pitt CSC x Simplify -- the canonical internship list (46k stars)
+#
+# The other GitHub repos below are smaller derivatives of this one. It is read
+# from the structured feed that generates its READMEs rather than the READMEs
+# themselves: the feed carries an exact `date_posted` epoch and an `active`
+# flag, and it does not break when the README markup changes (that repo now
+# renders HTML <table> markup, which a markdown table parser reads as zero
+# jobs).
+#
+# Measured 2026-08-10: 331 of 547 relevant listings in this feed were absent
+# from every other configured source -- 15 of them posted within the last day.
+# ----------------------------------------------------------------------------
+simplifyjobs_feed:
+  enabled: true
+  name: SimplifyJobs
+  repo: SimplifyJobs/Summer2027-Internships
+  branch: dev
+  path: .github/scripts/listings.json
+  us_only: true
+  # Seasons to accept. Postings with no season tagged are kept and flagged
+  # `unconfirmed` rather than dropped -- see src/scrapers/simplify_repo.py.
+  years: ["2027", "2028"]
+  # The feed's own `category` vocabulary. Hardware/Product are excluded to
+  # match the software / AI / quant focus; add them here to widen.
+  categories:
+    - Software
+    - Software Engineering
+    - AI/ML/Data
+    - Data Science, AI & Machine Learning
+    - Quant
 
 # ----------------------------------------------------------------------------
 # GitHub markdown job lists
@@ -208,8 +229,46 @@ github_lists:
 # ----------------------------------------------------------------------------
 linkedin:
   enabled: true
-  keywords: software engineer intern
+
+  # Several queries, because one phrasing does not find the others. LinkedIn
+  # matches keywords fairly literally, so "Summer Analyst" (how most quant and
+  # bank tech roles are titled) never appears in a "software engineer intern"
+  # search. Results are unioned and deduped by job URL.
+  # Measured yield per query on a live 24h window (2026-08-10): "software
+  # engineer intern" 250 new, "machine learning intern" 243, "data science
+  # intern" 185, "quantitative intern" 80. "software engineering intern" and
+  # "software developer intern" each returned 0 new -- LinkedIn's matching is
+  # loose enough that they retrieve the same set as the first query -- so they
+  # are omitted rather than spending the request budget twice for nothing.
+  keywords:
+    - software engineer intern
+    - machine learning intern
+    - data science intern
+    - quantitative intern
+    - summer analyst technology
+
   f_E: "1"          # experience level: internship
   f_TPR: r86400     # posted in last 24h
   sort_by: DD       # most recent first
-  max_pages: 6      # 25 results per page
+
+  # United States. Without this LinkedIn searches worldwide.
+  geo_id: "103644278"
+
+  # LinkedIn returns 10 cards per request, NOT the 25 the parameter name
+  # implies. Measured 2026-08-10: a single 24h "software engineer intern"
+  # query had 300+ unique results still paginating, while max_pages:6 stopped
+  # at 60 -- so 80% of LinkedIn was never seen. Raised, with a total budget
+  # across all queries so a runaway page count cannot blow the job timeout.
+  # Frequency substitutes for depth here. Results are sorted newest-first, and
+  # the digest now runs every 30 minutes, so reading the newest ~60 per query
+  # each run covers far more ground over a day than one deep 300-result sweep
+  # twice a day did -- and the seen-store absorbs the overlap between runs.
+  #
+  # Keeping the per-run budget small matters: at 48 runs a day, a 110-request
+  # budget would mean over 5,000 LinkedIn requests daily from a shared GitHub
+  # runner IP, which is how a scraper gets blocked outright. This caps a run at
+  # ~35 requests (~45 seconds). max_pages is per query, so the budget divides
+  # evenly across the five rather than being spent entirely on the first.
+  max_pages: 6
+  max_total_requests: 35
+  page_delay_seconds: 1.2

@@ -24,7 +24,7 @@ import yaml
 from . import canonical, email_render
 from .http import make_session
 from .models import Job, SourceResult
-from .scrapers import github_md, linkedin, simplify
+from .scrapers import github_md, linkedin, simplify, simplify_repo
 from .store import SeenStore
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,36 +54,67 @@ def load_config() -> dict:
 # Scraping
 # --------------------------------------------------------------------------
 
+def _run_source(results: list[SourceResult], name: str, fn) -> None:
+    """Run one source, recording success or failure without aborting the run.
+
+    A source that returns zero postings is recorded as a FAILURE, not as an
+    empty success. Every source here is a continuously-updated list of hundreds
+    of live jobs, so zero means the fetch or the parser broke -- and an empty
+    success is indistinguishable in the email from a quiet day, which is how a
+    dead source could go unnoticed for weeks.
+    """
+    try:
+        jobs = fn()
+    except Exception as exc:
+        log.error("%s failed: %s", name, exc)
+        results.append(SourceResult(name, ok=False, error=str(exc)))
+        return
+
+    if not jobs:
+        log.error("%s returned 0 postings - treating as a failure", name)
+        results.append(SourceResult(
+            name, ok=False,
+            error="returned 0 postings (expected hundreds) - source or parser may be broken",
+        ))
+        return
+
+    results.append(SourceResult(name, jobs))
+
+
 def collect(session, config: dict) -> list[SourceResult]:
     """Run every enabled source. A failure in one must not abort the others."""
     results: list[SourceResult] = []
 
+    # The Pitt CSC feed runs BEFORE the Typesense index deliberately. Both
+    # carry the same posting UUIDs, so whichever runs first wins the dedup --
+    # and the feed's entries already hold the employer's real ATS URL, while
+    # Typesense entries hold a click stub that needs an extra redirect request
+    # each to resolve. Feed-first means hundreds fewer requests per run and a
+    # direct Apply link even when a redirect fails.
+    feed_cfg = config.get("simplifyjobs_feed", {})
+    if feed_cfg.get("enabled", True):
+        _run_source(
+            results, feed_cfg.get("name", "SimplifyJobs"),
+            lambda: simplify_repo.fetch(session, feed_cfg),
+        )
+
     simplify_cfg = config.get("simplify", {})
     if simplify_cfg.get("enabled", True):
-        try:
-            results.append(SourceResult("Simplify", simplify.fetch(session, simplify_cfg)))
-        except Exception as exc:
-            log.error("Simplify failed: %s", exc)
-            results.append(SourceResult("Simplify", ok=False, error=str(exc)))
+        _run_source(results, "Simplify", lambda: simplify.fetch(session, simplify_cfg))
 
     gh_cfg = config.get("github_lists", {})
     if gh_cfg.get("enabled", True):
         for source in gh_cfg.get("sources", []):
             if not source.get("enabled", True):
                 continue
-            try:
-                results.append(SourceResult(source["name"], github_md.fetch_one(session, source)))
-            except Exception as exc:
-                log.error("%s failed: %s", source["name"], exc)
-                results.append(SourceResult(source["name"], ok=False, error=str(exc)))
+            _run_source(
+                results, source["name"],
+                lambda s=source: github_md.fetch_one(session, s),
+            )
 
     li_cfg = config.get("linkedin", {})
     if li_cfg.get("enabled", True):
-        try:
-            results.append(SourceResult("LinkedIn", linkedin.fetch(session, li_cfg)))
-        except Exception as exc:
-            log.error("LinkedIn failed: %s", exc)
-            results.append(SourceResult("LinkedIn", ok=False, error=str(exc)))
+        _run_source(results, "LinkedIn", lambda: linkedin.fetch(session, li_cfg))
 
     return results
 
@@ -124,10 +155,16 @@ def dedupe(results: list[SourceResult]) -> tuple[list[Job], int]:
     Direct-link sources are processed first so that when the same job appears
     both on LinkedIn and elsewhere, we keep the version with a real employer
     apply URL rather than the LinkedIn one.
+
+    Two postings that both carry a real ATS requisition id and whose ids differ
+    are different jobs, and are never merged -- see `canonical.exact_id`. The
+    fuzzy (company, title, location) key is only consulted for postings that
+    have no requisition id to compare, which is the case it exists for.
     """
     ordered = sorted(results, key=lambda r: any(j.indirect for j in r.jobs))
 
-    seen: set[str] = set()
+    seen_exact: set[str] = set()
+    seen_fuzzy: set[str] = set()
     unique: list[Job] = []
     collapsed = 0
 
@@ -136,10 +173,20 @@ def dedupe(results: list[SourceResult]) -> tuple[list[Job], int]:
             keys = canonical.keys_for(job)
             if not keys:
                 continue
-            if any(k in seen for k in keys):
+
+            exact = canonical.exact_ids(job)
+            if exact:
+                if any(k in seen_exact for k in exact):
+                    collapsed += 1
+                    continue
+                seen_exact.update(exact)
+            elif any(k in seen_fuzzy for k in keys):
                 collapsed += 1
                 continue
-            seen.update(keys)
+
+            # Record the fuzzy keys either way: a posting with a requisition id
+            # still has to absorb the LinkedIn mirror of itself later in the run.
+            seen_fuzzy.update(keys)
             unique.append(job)
 
     return unique, collapsed
@@ -236,18 +283,26 @@ def main() -> int:
     store = SeenStore(STATE_PATH)
     first_run = store.was_empty
 
-    # Scheduled runs only send when a digest is due and hasn't gone out yet.
+    # Sources are scraped every hour; email still goes out only twice a day.
+    # An off-hour run scrapes, records what it found as seen, and queues it in
+    # `store.pending` for the next digest. Without the queue those postings
+    # would be marked seen and then never sent -- the scrape would actively
+    # destroy them. Catching a posting within the hour is the whole point: a
+    # 10:14am drop otherwise waits until 7pm to be noticed.
     scheduled = not (args.dry_run or args.force or args.verify_links or args.catchup)
+    sending = True
     if scheduled:
         slot = due_slot(config, now, store)
-        if slot is None:
+        sending = slot is not None
+        if sending:
+            log.info("Digest due: %s slot", slot)
+        else:
             log.info(
-                "Nothing due at local %s (AM sent: %s, PM sent: %s) - exiting.",
+                "No digest due at local %s (AM sent: %s, PM sent: %s) - "
+                "scraping and queueing for the next one.",
                 now.strftime("%H:%M %Z"),
                 store.last_am_sent or "never", store.last_pm_sent or "never",
             )
-            return 0
-        log.info("Digest due: %s slot", slot)
 
     session = make_session()
 
@@ -274,7 +329,7 @@ def main() -> int:
         return _run_catchup(session, unique, failures, run_label(now),
                             smtp_user, smtp_password, recipient)
 
-    new_jobs = [j for j in unique if not store.has_any(canonical.keys_for(j))]
+    new_jobs = [j for j in unique if not store.has_any(canonical.lookup_keys_for(j))]
     log.info("New since last email: %d", len(new_jobs))
 
     if args.verify_links:
@@ -300,33 +355,55 @@ def main() -> int:
 
     label = run_label(now)
 
+    # Off-hour run: bank what was found and stop. State is still written, so
+    # these postings are not re-collected next hour.
+    if not sending and not first_run:
+        store.pending.extend(job.to_dict() for job in new_jobs)
+        log.info(
+            "Queued %d new postings; %d now waiting for the next digest.",
+            len(new_jobs), len(store.pending),
+        )
+        if not args.no_store:
+            store.save()
+        return 0
+
     if first_run:
         # Baseline instead of emailing the entire backlog.
         for job in unique:
             store.add(canonical.keys_for(job))
+        store.pending = []
         html_body, text_body = email_render.render_first_run(len(unique), label)
-        subject = f"[Job Digest] Initialised - tracking {len(unique)} postings"
+        messages = [(f"[Job Digest] Initialised - tracking {len(unique)} postings",
+                     html_body, text_body)]
         log.info("First run: baselining %d postings instead of sending them all", len(unique))
     else:
-        direct = [j for j in new_jobs if not j.indirect]
-        indirect = [j for j in new_jobs if j.indirect]
-        html_body = email_render.render_html(direct, indirect, failures, label)
-        text_body = email_render.render_text(direct, indirect, failures, label)
-        period = "AM" if now.hour < 12 else "PM"
-        count = len(new_jobs)
-        subject = (
-            f"[Job Digest] {count} new posting{'s' if count != 1 else ''} "
-            f"- {now.strftime('%b %-d')} {period}"
+        # Everything banked by the hourly runs since the last email, plus
+        # whatever this run just found.
+        queued = [Job.from_dict(d) for d in store.pending]
+        if queued:
+            log.info("Including %d postings queued by hourly runs", len(queued))
+        # Sorted before splitting so each part stays internally grouped rather
+        # than interleaving sections across parts.
+        to_send = sorted(
+            queued + new_jobs,
+            key=lambda j: (j.indirect, j.unconfirmed, j.company.lower(), j.title.lower()),
         )
+        period = "AM" if now.hour < 12 else "PM"
+        messages = _digest_messages(to_send, failures, label, now.strftime("%b %-d"), period)
 
     if not (smtp_user and smtp_password and recipient):
         log.error("Missing GMAIL_USER / GMAIL_APP_PASSWORD / RECIPIENT - cannot send.")
         return 1
 
-    email_render.send_email(
-        subject=subject, html_body=html_body, text_body=text_body,
-        smtp_user=smtp_user, smtp_password=smtp_password, recipient=recipient,
-    )
+    for subject, html_body, text_body in messages:
+        email_render.send_email(
+            subject=subject, html_body=html_body, text_body=text_body,
+            smtp_user=smtp_user, smtp_password=smtp_password, recipient=recipient,
+        )
+
+    # Delivered: the queue is drained only after send_email returns, so a
+    # failed send leaves the backlog intact for the next run to carry.
+    store.pending = []
 
     # Record that this slot's digest has gone out, so later runs in the same
     # window don't re-send. Only when this is (or falls in) a real send window.
@@ -336,6 +413,62 @@ def main() -> int:
         store.save()
 
     return 0
+
+
+# Gmail truncates a message body over roughly 102KB, hiding the remainder
+# behind a "[Message clipped] View entire message" link. A digest that gets
+# clipped silently withholds exactly the postings it exists to deliver, so the
+# send is split into parts before that happens. At ~1.2KB of rendered HTML per
+# posting the threshold is around 75 jobs -- reachable on a busy day, and
+# certain the first time a backlog goes out.
+GMAIL_CLIP_BYTES = 92_000
+
+
+def _sections(jobs: list[Job]) -> tuple[list[Job], list[Job], list[Job]]:
+    return (
+        [j for j in jobs if not j.indirect and not j.unconfirmed],
+        [j for j in jobs if j.indirect and not j.unconfirmed],
+        [j for j in jobs if j.unconfirmed],
+    )
+
+
+def _digest_messages(to_send: list[Job], failures: list[str], label: str,
+                     date_label: str, period: str) -> list[tuple[str, str, str]]:
+    """Render the digest as one email, or several if it would be clipped.
+
+    Returns a list of (subject, html, text). The split is measured from the
+    actual rendered size rather than assumed from a job count, because entries
+    vary a lot in length.
+    """
+    direct, indirect, unsure = _sections(to_send)
+    html = email_render.render_html(direct, indirect, unsure, failures, label)
+    text = email_render.render_text(direct, indirect, unsure, failures, label)
+    count = len(to_send)
+    plural = "s" if count != 1 else ""
+
+    if len(html) <= GMAIL_CLIP_BYTES or not to_send:
+        return [(f"[Job Digest] {count} new posting{plural} - {date_label} {period}",
+                 html, text)]
+
+    per_part = max(1, int(len(to_send) * GMAIL_CLIP_BYTES / len(html)))
+    batches = [to_send[i:i + per_part] for i in range(0, len(to_send), per_part)]
+    total = len(batches)
+    log.info("Digest is %dKB - splitting into %d emails to avoid Gmail clipping",
+             len(html) // 1024, total)
+
+    messages = []
+    for idx, batch in enumerate(batches, 1):
+        direct, indirect, unsure = _sections(batch)
+        # Source failures belong on the first part only, not repeated on each.
+        part_failures = failures if idx == 1 else []
+        part_label = f"{label}  ·  part {idx} of {total}"
+        messages.append((
+            f"[Job Digest] {count} new posting{plural} - {date_label} {period} "
+            f"({idx}/{total})",
+            email_render.render_html(direct, indirect, unsure, part_failures, part_label),
+            email_render.render_text(direct, indirect, unsure, part_failures, part_label),
+        ))
+    return messages
 
 
 CATCHUP_BATCH = 150
@@ -366,13 +499,14 @@ def _run_catchup(session, unique, failures, label, smtp_user, smtp_password, rec
     log.info("Catch-up: sending %d jobs across %d emails", len(ordered), total_parts)
 
     for idx, batch in enumerate(batches, 1):
-        direct = [j for j in batch if not j.indirect]
-        indirect = [j for j in batch if j.indirect]
+        direct = [j for j in batch if not j.indirect and not j.unconfirmed]
+        indirect = [j for j in batch if j.indirect and not j.unconfirmed]
+        unsure = [j for j in batch if j.unconfirmed]
         part_label = f"{label}  ·  Current openings, part {idx} of {total_parts}"
         # Only surface source failures on the first email, not repeated on each.
         batch_failures = failures if idx == 1 else []
-        html_body = email_render.render_html(direct, indirect, batch_failures, part_label)
-        text_body = email_render.render_text(direct, indirect, batch_failures, part_label)
+        html_body = email_render.render_html(direct, indirect, unsure, batch_failures, part_label)
+        text_body = email_render.render_text(direct, indirect, unsure, batch_failures, part_label)
         subject = (
             f"[Job Digest] Current openings ({idx}/{total_parts}) - {len(batch)} jobs"
         )
@@ -484,8 +618,8 @@ def _send_test_email(smtp_user: str, smtp_password: str, recipient: str, config:
     label = run_label(now)
     email_render.send_email(
         subject="[Job Digest] Test - 3 sample postings",
-        html_body=email_render.render_html(samples, li, [], label),
-        text_body=email_render.render_text(samples, li, [], label),
+        html_body=email_render.render_html(samples, li, [], [], label),
+        text_body=email_render.render_text(samples, li, [], [], label),
         smtp_user=smtp_user, smtp_password=smtp_password, recipient=recipient,
     )
     print(f"Test email sent to {recipient}")

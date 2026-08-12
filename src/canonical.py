@@ -187,19 +187,124 @@ def normalize_location(loc: str) -> str:
 
 
 def identity_key(company: str, title: str, location: str = "") -> str:
-    """Tier 2: fuzzy identity for the same role posted to two different ATSes."""
+    """Tier 2: fuzzy identity for the same role posted to two different ATSes.
+
+    Location is deliberately NOT part of the key. Every source writes it in its
+    own vocabulary for the same posting --
+
+        Simplify      "San Francisco, CA, USA, New York, NY"
+        SimplifyJobs  "SF, NYC"
+        LinkedIn      "San Francisco, CA"   (and a second row for New York)
+
+    -- so including it made one Figma role read as four separate entries.
+    Dropping it removed 23 duplicate entries from a live 971-job run while
+    losing no requisition that any source identified (measured 2026-08-10).
+
+    It is safe to be this aggressive because postings carrying a real ATS
+    requisition id never reach this key at all: `exact_ids` compares those
+    directly, so TikTok's seven distinct Software Engineer Intern reqs stay
+    seven entries. Only postings with nothing better to match on -- chiefly
+    LinkedIn's per-city repeats of one job -- are merged here.
+
+    `location` is still accepted so callers read naturally, and so re-adding it
+    is a one-line change if a source ever stops repeating itself per city.
+    """
     c = normalize_company(company)
     t = normalize_title(title)
-    loc = normalize_location(location)
     if not c or not t:
         return ""
-    return f"id:{c}|{t}|{loc}"
+    return f"id:{c}|{t}|"
 
 
 def keys_for(job) -> list[str]:
-    """All dedup keys for a job. Empty keys are dropped."""
-    keys = [canonical_url_key(job.apply_url)]
+    """All dedup keys for a job -- every exact id, plus the fuzzy identity key."""
+    keys = list(exact_ids(job))
+
+    url_key = canonical_url_key(job.apply_url)
+    if url_key and url_key not in keys:
+        keys.append(url_key)
+
     ident = identity_key(job.company, job.title, job.location)
     if ident:
         keys.append(ident)
+
     return [k for k in keys if k]
+
+
+# Tier-1 keys that do NOT identify a distinct employer requisition:
+#   url:  the fallback for an unrecognised host -- a normalised path, which
+#         two different postings on the same board can share
+#   li:   a LinkedIn posting id. LinkedIn is a mirror, so the same employer
+#         requisition has a different li: id than its Greenhouse/Lever twin,
+#         and treating it as exact would break cross-source dedup.
+_AGGREGATOR_KEY_PREFIXES = ("url:", "li:")
+
+
+def exact_ids(job) -> list[str]:
+    """Every exact identifier a job carries. Empty if it has none.
+
+    A job can carry more than one, and all of them matter. Simplify's Typesense
+    index and the Pitt CSC feed use the SAME posting UUIDs -- 452 of the ~470
+    live postings appear in both -- so that UUID joins the two sources exactly.
+    But the feed also gives the employer's real ATS URL, which is how the SAME
+    posting is recognised in vanshb03/speedyapply. One Figma role is therefore:
+
+        Simplify (Typesense)  sj:3b700557-...      (apply_url is a click stub)
+        SimplifyJobs (feed)   sj:3b700557-...  +  gh:figma:6131089004
+        vanshb03                                  gh:figma:6131089004
+
+    Matching on any shared id collapses all three into one entry. Returning a
+    single id could only ever join two of them.
+    """
+    keys: list[str] = []
+
+    uuid = (job.extra or {}).get("simplify_id") or (job.extra or {}).get("feed_id")
+    if uuid:
+        keys.append(f"sj:{uuid}")
+
+    url_key = canonical_url_key(job.apply_url)
+    if url_key and not url_key.startswith(_AGGREGATOR_KEY_PREFIXES):
+        keys.append(url_key)
+
+    return keys
+
+
+def exact_id(job) -> str:
+    """The employer-ATS requisition id for a job, or "" if there isn't one.
+
+    This is the distinction that keeps genuinely different postings apart.
+    `identity_key` deliberately strips the season and year from a title, so
+    these three live Palantir listings share one identity key:
+
+        Fall 2026    .../palantir/d582cd84-...
+        Fall 2026    .../palantir/ac0dc094-...
+        Summer 2028  .../palantir/e0010393-...
+
+    Measured on the 1,622 live listings in the Pitt CSC feed, 125 (7%) collapse
+    into another under the identity key, and 31 of those groups are different
+    requisitions. Because the seen-store is consulted with `any key matches`
+    and keeps entries for 180 days, a collapse there is permanent: once the
+    Fall 2026 role has been emailed, the Summer 2027 one never arrives.
+
+    So when two postings both carry a real ATS id and the ids differ, they are
+    different jobs and the fuzzy key must not be allowed to merge them.
+    """
+    key = canonical_url_key(job.apply_url)
+    if not key or key.startswith(_AGGREGATOR_KEY_PREFIXES):
+        return ""
+    return key
+
+
+def lookup_keys_for(job) -> list[str]:
+    """Keys used to ask the seen-store 'have I already emailed this?'.
+
+    A job with a real ATS requisition id is identified by that id alone --
+    exactly so a different requisition is never mistaken for one already sent.
+    Jobs without one (LinkedIn, unrecognised boards) still fall back to fuzzy
+    matching, which is what collapses a LinkedIn mirror of a job already sent
+    from its employer's board.
+    """
+    exact = exact_ids(job)
+    if exact:
+        return exact
+    return keys_for(job)

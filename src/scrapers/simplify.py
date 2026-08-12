@@ -24,6 +24,7 @@ import logging
 from datetime import datetime, timezone
 
 from ..http import FetchError, get_json, resolve_redirect
+from ..locations import is_us
 from ..models import Job
 
 log = logging.getLogger(__name__)
@@ -96,7 +97,15 @@ def fetch(session, cfg: dict) -> list[Job]:
 
         filter_by = build_filter(profile["filters"])
         name = profile["name"]
+        # Profiles that deliberately relax a gate (untagged season, untagged
+        # country) mark their results so the email can separate "confirmed
+        # 2027 role" from "might be one".
+        unconfirmed = bool(profile.get("unconfirmed", False))
+        # A profile with no `countries` gate must be filtered on location
+        # instead, otherwise relaxing that gate lets the whole world in.
+        us_postfilter = "countries" not in profile["filters"]
         found_total = None
+        skipped_non_us = 0
 
         for page in range(1, MAX_PAGES + 1):
             data = _search(session, cfg, filter_by, page)
@@ -116,6 +125,11 @@ def fetch(session, cfg: dict) -> list[Job]:
 
                 locations = doc.get("locations") or []
                 seasons = doc.get("seasons") or []
+
+                if us_postfilter and not is_us(locations):
+                    skipped_non_us += 1
+                    continue
+
                 jobs[job_id] = Job(
                     company=doc.get("company_name", ""),
                     title=doc.get("title", ""),
@@ -126,11 +140,15 @@ def fetch(session, cfg: dict) -> list[Job]:
                     season=", ".join(s for s in seasons if s and s != "N/A"),
                     salary=_format_salary(doc),
                     posted=_format_date(doc.get("start_date")),
+                    unconfirmed=unconfirmed,
                     extra={"simplify_id": job_id, "profile": name},
                 )
 
             if len(hits) < PER_PAGE:
                 break
+
+        if skipped_non_us:
+            log.info("Simplify[%s]: dropped %d non-US postings", name, skipped_non_us)
 
     log.info("Simplify: %d unique postings across profiles", len(jobs))
     return list(jobs.values())
