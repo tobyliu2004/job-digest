@@ -24,7 +24,7 @@ import yaml
 from . import canonical, email_render
 from .http import make_session
 from .models import Job, SourceResult
-from .scrapers import github_md, linkedin, simplify
+from .scrapers import github_md, linkedin, simplify, simplify_repo
 from .store import SeenStore
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +57,21 @@ def load_config() -> dict:
 def collect(session, config: dict) -> list[SourceResult]:
     """Run every enabled source. A failure in one must not abort the others."""
     results: list[SourceResult] = []
+
+    # The Pitt CSC feed runs BEFORE the Typesense index deliberately. Both
+    # carry the same posting UUIDs, so whichever runs first wins the dedup --
+    # and the feed's entries already hold the employer's real ATS URL, while
+    # Typesense entries hold a click stub needing an extra redirect request
+    # each to resolve. Feed-first means fewer requests and a direct Apply link
+    # even when a redirect fails.
+    feed_cfg = config.get("simplifyjobs_feed", {})
+    if feed_cfg.get("enabled", True):
+        name = feed_cfg.get("name", "SimplifyJobs")
+        try:
+            results.append(SourceResult(name, simplify_repo.fetch(session, feed_cfg)))
+        except Exception as exc:
+            log.error("%s failed: %s", name, exc)
+            results.append(SourceResult(name, ok=False, error=str(exc)))
 
     simplify_cfg = config.get("simplify", {})
     if simplify_cfg.get("enabled", True):
