@@ -196,9 +196,30 @@ def identity_key(company: str, title: str, location: str = "") -> str:
     return f"id:{c}|{t}|{loc}"
 
 
+def simplify_uuid_key(job) -> str:
+    """Tier 0: Simplify's own posting UUID, when the job carries one.
+
+    Simplify's Typesense index and the Pitt CSC feed are two views of the same
+    database and use the SAME posting UUIDs -- 452 of ~470 live postings appear
+    in both. Nothing else can join them: the Typesense entry's apply_url is a
+    `/jobs/click/<id>` stub (resolved to a real ATS URL only for jobs we are
+    about to send), while the feed already holds the employer's URL, so tier 1
+    sees two unrelated links. Their locations are written differently too
+    ("SF, NYC" vs "San Francisco, CA, USA, New York, NY"), so tier 2 misses as
+    well.
+
+    Without this key, adding the feed listed 35 postings twice -- Citadel, Two
+    Sigma and JP Morgan each appearing once as a Simplify click stub and once
+    as a direct employer link.
+    """
+    extra = getattr(job, "extra", None) or {}
+    uuid = extra.get("simplify_id") or extra.get("feed_id")
+    return f"sj:{uuid}" if uuid else ""
+
+
 def keys_for(job) -> list[str]:
     """All dedup keys for a job. Empty keys are dropped."""
-    keys = [canonical_url_key(job.apply_url)]
+    keys = [simplify_uuid_key(job), canonical_url_key(job.apply_url)]
     ident = identity_key(job.company, job.title, job.location)
     if ident:
         keys.append(ident)

@@ -38,8 +38,10 @@ RAW_URL = "https://raw.githubusercontent.com/{repo}/{branch}/{path}"
 # Column header -> logical field. Matched lowercase, substring-wise.
 _HEADER_MAP = {
     "company": "company",
+    "org": "company",
     "role": "title",
     "position": "title",
+    "opportunity": "title",
     "location": "location",
     "application/link": "apply",
     "application": "apply",
@@ -62,14 +64,22 @@ _JUNK_LINK = re.compile(
 
 _HREF = re.compile(r'href=["\'](https?://[^"\']+)["\']', re.I)
 _MD_LINK = re.compile(r"\[[^\]]*\]\((https?://[^)\s]+)\)")
+# Same shape, but capturing the label so a link can render as its text.
+_MD_LINK_LABEL = re.compile(r"\[([^\]]*)\]\((?:https?://[^)\s]+)\)")
 _TAG = re.compile(r"<[^>]+>")
 _CARRY = "↳"
 _CLOSED_MARKERS = ("🔒",)
 
 
 def _cell_text(cell: str) -> str:
-    """Visible text of a table cell, with HTML tags and entities removed."""
-    text = _TAG.sub(" ", cell)
+    """Visible text of a table cell, with HTML tags and entities removed.
+
+    Markdown links are reduced to their label: a cell holding both the role and
+    its link -- `[Software Undergrad Engineering Internship](https://...)` --
+    must read as the role, not as raw markup, in the email.
+    """
+    text = _MD_LINK_LABEL.sub(r"\1", cell)
+    text = _TAG.sub(" ", text)
     text = html.unescape(text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -119,15 +129,24 @@ def parse_markdown(text: str, source_name: str) -> list[Job]:
         if _is_separator(cells):
             continue
 
-        # Header row?
+        # Header row? A table names its employer column "Company" or "Org".
+        # sndsh404 keeps a second table headed `| org | opportunity | type |
+        # deadline |`; recognising only "company" skipped it entirely, losing
+        # 31 real postings including an Apple SWE internship.
         lowered = [_cell_text(c).lower() for c in cells]
-        if "company" in lowered:
+        if "company" in lowered or "org" in lowered:
             columns = {}
             for idx, name in enumerate(lowered):
                 for key, field in _HEADER_MAP.items():
                     if key in name and field not in columns:
                         columns[field] = idx
                         break
+            # Some tables put the role and its link in one cell -- "| Apple |
+            # [Software Undergrad Engineering Internship](https://...) |" --
+            # rather than in a separate apply column. Read the link from the
+            # title cell when there is no dedicated one.
+            if "apply" not in columns and "title" in columns:
+                columns["apply"] = columns["title"]
             last_company = ""
             continue
 

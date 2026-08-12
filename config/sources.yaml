@@ -158,6 +158,42 @@ simplify:
           - Summer 2028
 
 # ----------------------------------------------------------------------------
+# Pitt CSC x Simplify -- the canonical internship list (46k stars)
+#
+# The GitHub lists below are smaller derivatives of this one. Measured
+# 2026-08-10: 331 of its 547 relevant listings were absent from every other
+# source configured here, 15 of them posted within the previous day --
+# including Citadel, Figma, PEAK6, LPL Financial, ING and Tesla.
+#
+# Read from the structured feed that generates its READMEs, not the READMEs:
+# the feed carries an exact `date_posted` and an `active` flag, and that repo
+# renders HTML <table> markup which a markdown table parser reads as zero jobs.
+# ----------------------------------------------------------------------------
+simplifyjobs_feed:
+  enabled: true
+  name: SimplifyJobs
+  repo: SimplifyJobs/Summer2027-Internships
+  branch: dev
+  path: .github/scripts/listings.json
+  us_only: true
+
+  # Seasons to accept. Postings the repo tags `N/A` are dropped -- the feed
+  # carries off-season and prior-year listings in the same file, so an
+  # untagged entry cannot be confirmed as a 2027 role.
+  years: ["2027", "2028"]
+
+  # The repo's own category vocabulary, matching its README sections. Hardware
+  # Engineering and Product Management are deliberately excluded. Both the
+  # current and legacy category names are listed because the feed still
+  # contains records written under the old ones.
+  categories:
+    - Software                              # "Software Engineering" section
+    - Software Engineering
+    - AI/ML/Data                            # "Data Science, AI & ML" section
+    - Data Science, AI & Machine Learning
+    - Quant                                 # "Quantitative Finance" section
+
+# ----------------------------------------------------------------------------
 # GitHub markdown job lists
 #
 # All three repos publish the same broad table shape, so one parser handles
