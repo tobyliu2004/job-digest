@@ -320,28 +320,23 @@ def main() -> int:
         for job in unique:
             store.add(canonical.keys_for(job))
         html_body, text_body = email_render.render_first_run(len(unique), label)
-        subject = f"[Job Digest] Initialised - tracking {len(unique)} postings"
+        messages = [(f"[Job Digest] Initialised - tracking {len(unique)} postings",
+                     html_body, text_body)]
         log.info("First run: baselining %d postings instead of sending them all", len(unique))
     else:
-        direct = [j for j in new_jobs if not j.indirect]
-        indirect = [j for j in new_jobs if j.indirect]
-        html_body = email_render.render_html(direct, indirect, failures, label)
-        text_body = email_render.render_text(direct, indirect, failures, label)
         period = "AM" if now.hour < 12 else "PM"
-        count = len(new_jobs)
-        subject = (
-            f"[Job Digest] {count} new posting{'s' if count != 1 else ''} "
-            f"- {now.strftime('%b %-d')} {period}"
-        )
+        messages = _digest_messages(new_jobs, failures, label,
+                                    now.strftime("%b %-d"), period)
 
     if not (smtp_user and smtp_password and recipient):
         log.error("Missing GMAIL_USER / GMAIL_APP_PASSWORD / RECIPIENT - cannot send.")
         return 1
 
-    email_render.send_email(
-        subject=subject, html_body=html_body, text_body=text_body,
-        smtp_user=smtp_user, smtp_password=smtp_password, recipient=recipient,
-    )
+    for subject, html_body, text_body in messages:
+        email_render.send_email(
+            subject=subject, html_body=html_body, text_body=text_body,
+            smtp_user=smtp_user, smtp_password=smtp_password, recipient=recipient,
+        )
 
     # Record that this slot's digest has gone out, so later runs in the same
     # window don't re-send. Only when this is (or falls in) a real send window.
@@ -351,6 +346,102 @@ def main() -> int:
         store.save()
 
     return 0
+
+
+# Gmail truncates a message body over roughly 102KB, hiding everything past
+# that behind a "[Message clipped] View entire message" link. A clipped digest
+# silently withholds exactly the postings it exists to deliver -- and it fails
+# quietly, since the email still looks complete until you scroll. So the send
+# is split into parts before reaching that size.
+#
+# 92KB leaves headroom for the subject, headers and quoted-printable encoding,
+# which inflate the wire size above len(html).
+GMAIL_CLIP_BYTES = 92_000
+
+
+def _pack(ordered: list[Job], render) -> list[list[Job]]:
+    """Split jobs into batches that each render under the clip threshold.
+
+    Dividing by the average entry size is not enough: entries vary several-fold
+    (a role with a long title, two locations and a salary against a bare one),
+    so an average-sized split can still produce an oversized part when the large
+    entries cluster. Each candidate batch is therefore measured, and any batch
+    that still renders too big is halved until it fits.
+    """
+    if not ordered:
+        return [ordered]
+
+    full = len(render(ordered, "", [])[0])
+    n = len(ordered)
+
+    # Work out how many parts are needed, then spread the jobs evenly across
+    # them. Filling each part to the brim instead would leave a lopsided tail --
+    # an 88KB email followed by a 7KB one -- which reads like something broke.
+    parts = max(1, -(-full // GMAIL_CLIP_BYTES))
+
+    for _ in range(8):  # a handful of widenings is always enough in practice
+        per_part = -(-n // parts)
+        batches = [ordered[i:i + per_part] for i in range(0, n, per_part)]
+        if all(len(render(b, "", [])[0]) <= GMAIL_CLIP_BYTES for b in batches):
+            return batches
+        parts += 1
+
+    # Fell through: split anything still oversized in half until it fits, so a
+    # pathological batch can never produce a clipped email.
+    result: list[list[Job]] = []
+    pending = list(batches)
+    while pending:
+        batch = pending.pop(0)
+        if len(batch) > 1 and len(render(batch, "", [])[0]) > GMAIL_CLIP_BYTES:
+            mid = len(batch) // 2
+            pending[:0] = [batch[:mid], batch[mid:]]
+            continue
+        result.append(batch)
+    return result
+
+
+def _digest_messages(jobs: list[Job], failures: list[str], label: str,
+                     date_label: str, period: str) -> list[tuple[str, str, str]]:
+    """Render the digest as one email, or several if it would be clipped.
+
+    Returns a list of (subject, html, text). The split point is measured from
+    the actual rendered size rather than assumed from a job count, because
+    entries vary a lot in length -- a role with a long title, two locations and
+    a salary is several times the size of a bare one.
+    """
+    def render(batch, extra_label, batch_failures):
+        direct = [j for j in batch if not j.indirect]
+        indirect = [j for j in batch if j.indirect]
+        return (email_render.render_html(direct, indirect, batch_failures, extra_label),
+                email_render.render_text(direct, indirect, batch_failures, extra_label))
+
+    count = len(jobs)
+    plural = "s" if count != 1 else ""
+    html, text = render(jobs, label, failures)
+
+    if len(html) <= GMAIL_CLIP_BYTES or not jobs:
+        return [(f"[Job Digest] {count} new posting{plural} - {date_label} {period}",
+                 html, text)]
+
+    # Sort before splitting so each part stays grouped by employer rather than
+    # interleaving one company's roles across two emails.
+    ordered = sorted(jobs, key=lambda j: (j.indirect, j.company.lower(), j.title.lower()))
+    batches = _pack(ordered, render)
+    total = len(batches)
+    log.info("Digest is %dKB - splitting into %d emails so Gmail cannot clip it",
+             len(html) // 1024, total)
+
+    messages = []
+    for idx, batch in enumerate(batches, 1):
+        # Source failures belong on the first part only, not repeated on each.
+        part_html, part_text = render(batch, f"{label}  ·  part {idx} of {total}",
+                                      failures if idx == 1 else [])
+        messages.append((
+            f"[Job Digest] {count} new posting{plural} - {date_label} {period} "
+            f"({idx}/{total})",
+            part_html, part_text,
+        ))
+    return messages
 
 
 CATCHUP_BATCH = 150
