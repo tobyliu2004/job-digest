@@ -110,18 +110,47 @@ def _is_separator(cells: list[str]) -> bool:
     return bool(cells) and all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c)
 
 
-def parse_markdown(text: str, source_name: str) -> list[Job]:
+_HEADING = re.compile(r"^#{1,6}\s+(.*?)\s*$")
+
+
+def parse_markdown(text: str, source_name: str,
+                   skip_sections: list[str] | tuple = ()) -> list[Job]:
+    """Parse job tables out of a README.
+
+    `skip_sections` holds regexes matched against markdown headings. Tables
+    under a matching heading are ignored entirely, because not every table in
+    these files is a job list: sndsh404 keeps a "programs always open" section
+    listing Google Summer of Code and Outreachy, which are programmes, not
+    postings you apply to for a summer internship.
+
+    It is deliberately narrow. The neighbouring "programs open now" table is
+    NOT skipped, because it mixes that kind of entry with three genuine Apple
+    internships -- dropping the whole section would lose them. Filtering within
+    a mixed table is relevance.py's job.
+    """
+    patterns = [re.compile(p, re.I) for p in (skip_sections or ())]
     jobs: list[Job] = []
     columns: dict[str, int] | None = None
     last_company = ""
     skipped_closed = 0
+    skipped_section = 0
+    in_skipped = False
 
     for line in text.splitlines():
         stripped = line.strip()
+
+        heading = _HEADING.match(stripped)
+        if heading:
+            in_skipped = any(p.search(heading.group(1)) for p in patterns)
+
         if not stripped.startswith("|"):
             # A non-table line ends the current table; the next table brings
             # its own header. Repos have several tables (FAANG/Quant/Other).
             columns = None
+            continue
+
+        if in_skipped:
+            skipped_section += 1
             continue
 
         cells = _split_row(stripped)
@@ -189,12 +218,14 @@ def parse_markdown(text: str, source_name: str) -> list[Job]:
 
     if skipped_closed:
         log.info("%s: skipped %d closed postings", source_name, skipped_closed)
+    if skipped_section:
+        log.info("%s: skipped %d row(s) in non-job sections", source_name, skipped_section)
     return jobs
 
 
 def fetch_one(session, source: dict) -> list[Job]:
     url = RAW_URL.format(repo=source["repo"], branch=source["branch"], path=source["path"])
     text = get_text(session, url)
-    jobs = parse_markdown(text, source["name"])
+    jobs = parse_markdown(text, source["name"], source.get("skip_sections", ()))
     log.info("%s: %d postings", source["name"], len(jobs))
     return jobs

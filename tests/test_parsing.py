@@ -111,3 +111,64 @@ class TestStore:
         store.prune(days=180)
         assert "fresh" in store.keys
         assert "ancient" not in store.keys
+
+
+class TestSkippedSections:
+    """Not every table in these READMEs is a job list. sndsh404 keeps a
+    "programs always open" section holding Google Summer of Code and Outreachy
+    -- programmes, not postings you apply to for a summer internship."""
+
+    README = """
+## the list
+
+| Company | Role | Location | Apply |
+| --- | --- | --- | --- |
+| Acme | Software Engineer Intern | NYC | [Apply](https://job-boards.greenhouse.io/acme/jobs/1) |
+
+## programs always open
+
+| org | opportunity | type |
+| --- | --- | --- |
+| Google | [Summer of Code](https://summerofcode.withgoogle.com/) | open-source |
+| Outreachy | [Outreachy](https://www.outreachy.org/) | open-source |
+
+## programs open now
+
+| org | opportunity | type | deadline |
+| --- | --- | --- | --- |
+| Apple | [Software Undergrad Engineering Internship](https://jobs.apple.com/en-us/details/200664785-3810/x) | SWE intern | rolling |
+| MLH | [MLH Fellowship](https://fellowship.mlh.io/) | fellowship | rolling |
+"""
+    SKIP = [r"^programs always open$"]
+
+    def test_the_programmes_table_is_skipped(self):
+        jobs = parse_markdown(self.README, "sndsh404", self.SKIP)
+        titles = [j.title for j in jobs]
+        assert "Summer of Code" not in titles
+        assert "Outreachy" not in titles
+
+    def test_the_real_list_is_untouched(self):
+        jobs = parse_markdown(self.README, "sndsh404", self.SKIP)
+        assert "Software Engineer Intern" in [j.title for j in jobs]
+
+    def test_a_mixed_section_is_not_skipped(self):
+        """"programs open now" holds three genuine Apple internships alongside
+        the junk, so skipping the whole section would lose them. Filtering
+        inside it is relevance.py's job."""
+        jobs = parse_markdown(self.README, "sndsh404", self.SKIP)
+        titles = [j.title for j in jobs]
+        assert "Software Undergrad Engineering Internship" in titles
+        assert "MLH Fellowship" in titles      # dropped later, by relevance
+
+    def test_no_skip_list_preserves_the_old_behaviour_exactly(self):
+        assert (len(parse_markdown(self.README, "s", []))
+                == len(parse_markdown(self.README, "s")) == 5)
+
+    def test_a_later_heading_ends_the_skip(self):
+        jobs = parse_markdown(self.README, "sndsh404", self.SKIP)
+        assert any(j.company == "Apple" for j in jobs)
+
+    def test_patterns_are_matched_case_insensitively(self):
+        readme = self.README.replace("## programs always open", "## Programs Always Open")
+        jobs = parse_markdown(readme, "sndsh404", self.SKIP)
+        assert "Summer of Code" not in [j.title for j in jobs]

@@ -4,7 +4,7 @@ double-listing everything Simplify already reports.
 
 from src.canonical import keys_for, simplify_uuid_key
 from src.locations import is_us
-from src.main import dedupe
+from src import dedupe
 from src.models import Job, SourceResult
 from src.scrapers.simplify_repo import _wanted_season, fetch
 
@@ -152,22 +152,22 @@ class TestUuidJoin:
 
     def test_dedupe_collapses_them_to_one(self):
         t, f = self._pair()
-        unique, collapsed = dedupe([
+        clusters, collapsed, _ = dedupe.cluster([
             SourceResult("SimplifyJobs", [f]),
             SourceResult("Simplify", [t]),
         ])
-        assert len(unique) == 1
+        assert len(clusters) == 1
         assert collapsed == 1
 
     def test_the_direct_employer_link_is_the_one_kept(self):
         """Feed-first ordering in collect() means the real ATS URL wins over
         the click stub, which also saves a redirect request."""
         t, f = self._pair()
-        unique, _ = dedupe([
+        clusters, _, _ = dedupe.cluster([
             SourceResult("SimplifyJobs", [f]),
             SourceResult("Simplify", [t]),
         ])
-        assert "citadel.com" in unique[0].apply_url
+        assert "citadel.com" in clusters[0].job.apply_url
 
     def test_a_job_without_a_uuid_is_unaffected(self):
         j = Job("X", "SWE Intern", "https://job-boards.greenhouse.io/x/jobs/1", "repo")

@@ -1,19 +1,28 @@
 name: Job Digest
 
 on:
-  # GitHub Actions cron is UTC-only, ignores DST, and routinely DELAYS or DROPS
-  # scheduled triggers. To stay reliable we (a) fire many times across the
-  # morning and evening windows for any US timezone, at :09 and :39 to dodge the
-  # congested top of the hour, and (b) let src/main.py send whenever a digest is
-  # "due and not yet sent" (see due_slot). So a dropped on-the-hour trigger is
-  # simply covered by the next run in the window; nothing is skipped.
+  # The digest must LAND at 07:00 and 19:00 Eastern. GitHub Actions cron is
+  # UTC-only, ignores DST, and routinely delays triggers by 10-50 minutes, so
+  # firing at the target time and hoping produced 09:52-11:50 deliveries for a
+  # 09:00 slot. Two mechanisms fix that:
   #
-  #   morning window (09:00-noon local) -> 13..19 UTC   (EDT .. PST)
-  #   evening window (19:00-23:00 local) -> 23..05 UTC
+  #  (a) Fire EARLY and often. A window opens `prep_minutes` (25) before its
+  #      target, so a run that starts at 06:35 scrapes, dedupes and renders,
+  #      then holds the finished email until exactly 07:00. Whichever trigger
+  #      lands inside the prep window produces an on-time send; the rest exit
+  #      in about two seconds.
   #
-  # Runs outside a due window exit in a couple of seconds.
+  #  (b) src/main.py still sends whenever a slot is "due and not yet sent"
+  #      (see due_slot), so if every prep-window trigger is dropped, a later
+  #      one still delivers -- just not on the minute.
+  #
+  # Hours cover both DST offsets, since cron cannot:
+  #   07:00 ET target -> prep opens 06:35 ET -> 10:35 UTC (EDT) / 11:35 (EST)
+  #   19:00 ET target -> prep opens 18:35 ET -> 22:35 UTC (EDT) / 23:35 (EST)
+  # The extra hours are catch-up for badly delayed triggers, bounded by the
+  # am_deadline / pm_deadline in config/sources.yaml.
   schedule:
-    - cron: '9,39 0,1,2,3,4,5,13,14,15,16,17,18,19,23 * * *'
+    - cron: '5,20,35,50 10,11,12,13,22,23,0,1 * * *'
 
   # Manual trigger for testing.
   workflow_dispatch:
@@ -30,6 +39,10 @@ on:
         description: 'One-time: email ALL currently-open jobs as links, in batches'
         type: boolean
         default: false
+      migrate_keys:
+        description: 'One-time: translate seen-state onto the fixed key formats'
+        type: boolean
+        default: false
 
 # Needed to commit state/seen.json back to the repo.
 permissions:
@@ -43,7 +56,9 @@ concurrency:
 jobs:
   digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Generous enough to cover scraping plus the pre-send hold, which can be up
+    # to schedule.max_hold_minutes (45) while the run waits for its target time.
+    timeout-minutes: 75
 
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +69,13 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      # A broken commit must not be able to send a corrupted digest, so the
+      # suite gates the send. `live` tests are skipped -- a rate-limited
+      # LinkedIn must not stop the morning email going out.
+      - name: Run tests
+        run: pytest -q -m "not live"
 
       - name: Run digest
         env:
@@ -69,6 +90,7 @@ jobs:
           if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run --no-store"; fi
           if [ "${{ inputs.catchup }}" = "true" ]; then ARGS="$ARGS --catchup"; fi
+          if [ "${{ inputs.migrate_keys }}" = "true" ]; then ARGS="$ARGS --migrate-keys"; fi
           python -m src.main $ARGS
 
       - name: Commit updated state

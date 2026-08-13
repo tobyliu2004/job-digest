@@ -1,0 +1,32 @@
+name: Tests
+
+# The digest sends real email on a schedule, so a broken commit is expensive.
+# This runs on every push and PR; digest.yml also runs the suite before sending.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'state/**'        # the bot's own state commits cannot break the code
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      # Tests marked `live` hit the network and are excluded here so CI cannot
+      # go red because LinkedIn rate-limited us.
+      - name: Run tests
+        run: pytest -q -m "not live"

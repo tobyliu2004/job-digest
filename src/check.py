@@ -35,12 +35,38 @@ GREEN, YELLOW, RED, DIM, BOLD, RESET = (
 )
 
 
-def _keys_for_url(url: str, company: str = "", title: str = "", location: str = "") -> list[str]:
+def _keys_for_url(url: str, company: str = "", title: str = "",
+                  location: str = "", season: str = "") -> list[str]:
     keys = [canonical.canonical_url_key(url)]
-    ident = canonical.identity_key(company, title, location)
+    ident = canonical.identity_key(company, title, location, season)
     if ident:
         keys.append(ident)
     return [k for k in keys if k]
+
+
+def _identity_prefix(company: str, title: str) -> str:
+    """The leading, location-free part of an identity key.
+
+    Stored identity keys carry the posting's location and season, but you
+    almost never type those at the command line -- so an exact --company
+    /--title lookup matched nothing at all. Comparing on the prefix instead
+    lets `--company Stripe --title "SWE Intern"` find the stored
+    `id:stripe|swe|new york ny|intern|su2027`.
+    """
+    c = canonical.normalize_company(company)
+    t = canonical.normalize_title(title)
+    return f"id:{c}|{t}|" if c and t else ""
+
+
+def _find(stored: dict, keys: list[str], company: str, title: str) -> str:
+    """The stored key matching this job: exact if possible, else by prefix."""
+    for key in keys:
+        if key in stored:
+            return key
+    prefix = _identity_prefix(company, title)
+    if prefix:
+        return next((k for k in sorted(stored) if k.startswith(prefix)), "")
+    return ""
 
 
 def _fmt_date(iso: str) -> str:
@@ -50,13 +76,16 @@ def _fmt_date(iso: str) -> str:
         return iso or "unknown date"
 
 
-def check(url: str, company: str, title: str) -> int:
-    keys = _keys_for_url(url, company, title)
+def check(url: str, company: str, title: str,
+          location: str = "", season: str = "") -> int:
+    keys = _keys_for_url(url, company, title, location, season)
     seen = SeenStore(SEEN_PATH)
     applied = AppliedStore(APPLIED_PATH)
 
-    applied_rec = applied.status(keys)
-    was_emailed = seen.has_any(keys)
+    applied_key = _find(applied.jobs, keys, company, title)
+    applied_rec = applied.jobs.get(applied_key) if applied_key else None
+    matched = _find(seen.keys, keys, company, title)
+    was_emailed = bool(matched)
 
     print()
     if applied_rec:
@@ -66,7 +95,7 @@ def check(url: str, company: str, title: str) -> int:
         print(f"    {DIM}Don't apply again.{RESET}")
         result = 2
     elif was_emailed:
-        when = seen.keys.get(next((k for k in keys if k in seen.keys), ""), "")
+        when = seen.keys.get(matched, "")
         print(f"  {YELLOW}● Seen before{RESET} — the digest emailed you this on {_fmt_date(when)}.")
         print(f"    {DIM}You have not marked it applied. Mark it with:{RESET}")
         print(f"    {DIM}python -m src.check --applied \"{url}\"{RESET}")
@@ -79,8 +108,9 @@ def check(url: str, company: str, title: str) -> int:
     return result
 
 
-def mark_applied(url: str, company: str, title: str) -> int:
-    keys = _keys_for_url(url, company, title)
+def mark_applied(url: str, company: str, title: str,
+                 location: str = "", season: str = "") -> int:
+    keys = _keys_for_url(url, company, title, location, season)
     applied = AppliedStore(APPLIED_PATH)
     existing = applied.status(keys)
     record = applied.mark(keys, url=url, company=company, title=title)
@@ -94,8 +124,9 @@ def mark_applied(url: str, company: str, title: str) -> int:
     return 0
 
 
-def unapply(url: str, company: str, title: str) -> int:
-    keys = _keys_for_url(url, company, title)
+def unapply(url: str, company: str, title: str,
+            location: str = "", season: str = "") -> int:
+    keys = _keys_for_url(url, company, title, location, season)
     applied = AppliedStore(APPLIED_PATH)
     if applied.unmark(keys):
         applied.save()
@@ -132,6 +163,8 @@ def main() -> int:
     p.add_argument("--list", action="store_true", help="list everything you've applied to")
     p.add_argument("--company", default="", help="optional, improves matching")
     p.add_argument("--title", default="", help="optional, improves matching")
+    p.add_argument("--location", default="", help="optional, improves matching")
+    p.add_argument("--season", default="", help="optional, e.g. \"Summer 2027\"")
     args = p.parse_args()
 
     if args.list:
@@ -141,10 +174,13 @@ def main() -> int:
         p.error("a job URL is required (or use --list)")
 
     if args.applied:
-        return mark_applied(args.url, args.company, args.title)
+        return mark_applied(args.url, args.company, args.title,
+                        args.location, args.season)
     if args.unapply:
-        return unapply(args.url, args.company, args.title)
-    return check(args.url, args.company, args.title)
+        return unapply(args.url, args.company, args.title,
+                   args.location, args.season)
+    return check(args.url, args.company, args.title,
+                 args.location, args.season)
 
 
 if __name__ == "__main__":

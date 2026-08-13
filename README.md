@@ -4,12 +4,16 @@ Scrapes seven job sources twice a day, keeps only postings you have never been
 sent, deduplicates across sources, and emails you one digest where every entry
 is a **direct link to the employer's application page**.
 
-Sends at **9:00 AM** and **7:00 PM** in your configured timezone.
+Sends at **7:00 AM** and **7:00 PM** in your configured timezone, on the
+minute — the run starts ~25 minutes early, does all the scraping and rendering,
+then holds the finished email until the target time (GitHub Actions cron drifts
+10-50 minutes, so firing at 7:00 and hoping does not work).
 
 ## Sources
 
 | Source | How it's read | Link type |
 |---|---|---|
+| `SimplifyJobs/Summer2027-Internships` (Pitt CSC x Simplify) | Structured JSON feed (`.github/scripts/listings.json`) | Direct |
 | Simplify.jobs (3 filter sets) | Public Typesense search index | Direct — resolved through Simplify's click-redirect to the real ATS URL |
 | `vanshb03/Summer2027-Internships` | Raw markdown (`OFFSEASON_README.md` + `README.md`) | Direct |
 | `sndsh404/summer-2027-internships` | Raw markdown | Direct |
@@ -80,7 +84,9 @@ python -m src.main --dry-run --no-store   # scrape + list, no email, no state
 python -m src.main --verify-links         # check apply links are direct
 python -m src.main --test-email           # send a sample digest
 python -m src.main --force                # a real run, ignoring the time gate
-pytest -q                                 # 33 tests
+python -m src.main --audit-filter         # what the junk filter drops, and why
+python -m src.main --migrate-keys --dry-run  # preview a dedup-key migration
+pytest -q                                 # the full suite
 ```
 
 `--test-email` needs the three env vars set locally:
@@ -191,14 +197,64 @@ in `_HEADER_MAP` in `src/scrapers/github_md.py`.
 ### Adjusting what gets scraped
 
 Everything is in `config/sources.yaml` — Simplify filter values, which GitHub
-lists are enabled, LinkedIn keywords. The two lists that were not among the
-original seven URLs (`vanshb03-summer2027`, `speedyapply-newgrad-usa`) each have
-their own `enabled:` flag.
+lists are enabled, LinkedIn keywords and geography. The two lists that were not
+among the original seven URLs (`vanshb03-summer2027`, `speedyapply-newgrad-usa`)
+each have their own `enabled:` flag.
+
+### Filtering out junk
+
+Two independent stages, deliberately kept apart:
+
+- `intern_only` asks **is this an internship?** "Tax Intern" passes.
+- `relevance:` asks **is this a software job?** That is where "Tax Intern" goes.
+
+The `relevance:` rules run in a fixed order — `block_*` (not a job posting at
+all) → `restrict_titles` (unpaid, or reserved for one school) → `maybe_titles`
+(off-domain), with `allow_titles` able to rescue only the last of those.
+Anything filtered as borderline is **demoted to a "Maybe" section at the bottom
+of the email, not deleted**, and tagged with the rule that caught it — so a rule
+that is too aggressive is visible rather than silently costing you a job.
+
+Before changing a rule, see exactly what it would do:
+
+```bash
+python -m src.main --audit-filter                              # live scrape
+python -m src.main --audit-filter --from tests/fixtures/live_jobs.json   # offline
+```
+
+The `SAVED` section of that report lists every posting `allow_titles` rescued —
+the best place to spot an over-broad rule.
+
+### Deduplication keys
+
+Jobs are identified by, in order of strength: Simplify's posting UUID, the
+employer's own ATS requisition id, then a normalised
+company/title/location/level/season tuple. Requisition ids always carry the
+employer (`wd:nvidia:jr2015779`, not `wd:jr2015779`) because those counters are
+per-tenant and short ones collide across companies.
+
+Two failure modes, and they are not symmetric: sending a job twice is visible
+and mildly annoying; merging two different jobs marks one as seen without ever
+sending it, and hides it forever. Every judgement call in `src/canonical.py` and
+`src/dedupe.py` is biased accordingly.
+
+**Changing a key format invalidates every key already in `state/seen.json`**, so
+it needs a migration or the next digest re-sends the whole backlog:
+
+```bash
+python -m src.main --migrate-keys --dry-run   # shows the one-time resend count
+python -m src.main --migrate-keys             # applies it
+```
+
+`dedup.legacy_keys_until` in the config keeps the old formats readable (never
+writable) for a transition period. After that date, delete
+`src/canonical_legacy.py` and the config block.
 
 ## Known limitations
 
 - LinkedIn entries link to LinkedIn, not the employer (see above).
 - Some employers (e.g. Tesla) return `403` to automated requests. `--verify-links`
   reports these as `BOT?` rather than failures — the links work fine in a browser.
-- GitHub Actions scheduled runs can be delayed several minutes under load, so a
-  digest may arrive at ~9:05 rather than exactly 9:00.
+- GitHub Actions can drop a scheduled trigger entirely. The workflow fires
+  repeatedly across each window and `main.py` sends whenever a slot is *due and
+  unsent*, so a dropped trigger costs punctuality, never the digest.

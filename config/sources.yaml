@@ -4,19 +4,143 @@
 # Edit this file to change what gets scraped. Everything else is code.
 # ============================================================================
 
-# Your timezone. The digest sends at 09:00 and 19:00 local to this zone.
+# Your timezone. The digest sends at 07:00 and 19:00 local to this zone.
 # GitHub Actions cron is UTC-only, so main.py gates on this value instead.
 # Examples: America/Los_Angeles, America/New_York, America/Chicago, America/Denver
 timezone: America/New_York
 
-# Local hours (24h) at which a digest should send.
-send_hours: [9, 19]
+# Local hours (24h) at which a digest should LAND in the inbox.
+send_hours: [7, 19]
+
+schedule:
+  # How early a run may start. GitHub Actions cron drifts 10-50 minutes, so the
+  # workflow fires well before the target; the run scrapes, dedupes and renders,
+  # then waits out the remainder so the email arrives on the hour rather than
+  # whenever the runner happened to boot.
+  prep_minutes: 25
+
+  # Safety valve on that wait. If the target is further away than this, send
+  # immediately instead of holding a runner idle.
+  max_hold_minutes: 45
+
+  # When a window gives up. Without these the morning window ran until the
+  # evening one opened, so a morning of dropped triggers could deliver a
+  # "morning" digest at 5pm. Past the deadline the slot is skipped and the
+  # evening digest picks up its jobs -- they are still new, so nothing is lost.
+  am_deadline: "12:00"
+  pm_deadline: "23:30"
+
+# ----------------------------------------------------------------------------
+# Deduplication
+# ----------------------------------------------------------------------------
+dedup:
+  # Until this date the seen-check ALSO consults the pre-2026-08-13 key formats
+  # (see src/canonical_legacy.py). That covers postings which were not in the
+  # scrape when `--migrate-keys` ran, such as anything LinkedIn had already
+  # aged out of its 24-hour window. Legacy keys are never written.
+  #
+  # After this date: delete src/canonical_legacy.py and this block.
+  legacy_keys_until: "2026-09-15"
 
 # Internship-only mode. When true, new-grad / entry-level / full-time roles are
 # filtered out: LinkedIn results must say "intern"/"co-op", and any source's
 # obvious new-grad titles ("New Grad", "Graduate Program", "Associate", ...) are
 # dropped. Set false to also receive new-grad and entry-level roles.
 intern_only: true
+
+# ----------------------------------------------------------------------------
+# Relevance -- is this a SOFTWARE job? (intern_only above asks a different
+# question: is it an internship? "Tax Intern" passes that one.)
+#
+# Rules are evaluated in this order, and the first match wins:
+#
+#   1. block_*          -> DROP (never stored, so loosening a rule brings it back)
+#   2. restrict_titles  -> "Maybe" section; the allowlist CANNOT rescue these
+#   3. maybe_titles     -> "Maybe" section, unless allow_titles rescues it
+#   4. otherwise        -> KEEP
+#
+# Only step 3 consults allow_titles, because only step 3 is a guess about
+# subject matter. A pure blocklist deletes real jobs ("hardware engineer",
+# "software quality engineer"); a pure tech allowlist deletes different real
+# jobs ("Infrastructure Intern", "Video Algorithms Intern"). Letting the
+# allowlist override just the off-domain guess gets both right.
+#
+# Steps 1 and 2 are facts about the posting, not opinions about its field:
+# "AI Engineer (Unpaid Internship)" is obviously an AI job and still unpaid.
+#
+# ALWAYS preview a change before trusting it:
+#     python -m src.main --audit-filter
+#     python -m src.main --audit-filter --from tests/fixtures/live_jobs.json
+# ----------------------------------------------------------------------------
+relevance:
+  enabled: true
+
+  # maybe = demote borderline postings to their own section (recommended)
+  # drop  = hard-drop them instead
+  # off   = keep everything
+  mode: maybe
+
+  # Anything that looks like software/data/quant work. Be generous: this list
+  # only ever RESCUES a posting the off-domain list below would have demoted,
+  # so a false positive here costs one extra row, never a lost job.
+  #
+  # Deliberately absent: bare "code" (matched "Summer of Code"), "technology"
+  # and "IT" (matched "Tax Technology Intern", "IT Audit Intern"), and
+  # "trading"/"trader" (matched "Global Markets Sales & Trading Analyst").
+  # Genuine quant roles still pass on "quant"/"quantitative".
+  allow_titles:
+    - '\b(software|swe|sde|developer|programmer|coding)\b'
+    - '\b(engineer|engineering)\b'
+    - '\b(infrastructure|platform|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|distributed|systems?)\b'
+    - '\b(embedded|firmware|hardware|silicon|asic|fpga|compiler|kernel|operating system|graphics|gameplay|game)\b'
+    - '\b(ml|machine\s*learning|ai|artificial intelligence|deep\s*learning|nlp|computer\s*vision|algorithms?|research scientist|applied scientist)\b'
+    - '\b(data|analytics|quant|quantitative|statistics|statistical)\b'
+    - '\b(security|cyber|devops|sre|cloud|network|mobile|ios|android|web|robotics|autonomy|autonomous|simulation)\b'
+    - '\b(computer science)\b'
+
+  # Not real postings, or programs rather than jobs.
+  block_titles:
+    - '\bgeneral interest\b'
+    - '\bskillbridge\b'
+    - '\b(summer of code|outreachy)\b'
+    - '\b(fellowship|scholars?|student ambassadors?|mentorship program)\b'
+    - '\bexpress your interest\b'
+    - '\btalent (community|network|pool)\b'
+    - '\bjoin our talent\b'
+
+  # Aggregators and reposters that relist other companies' jobs under their own
+  # name, so the apply link goes nowhere useful.
+  block_companies:
+    - '^(genusjob|meeboss)\b'
+    - '^jobright'
+
+  block_urls:
+    - 'summerofcode\.withgoogle\.com'
+    - 'outreachy\.org'
+    - 'fellowship\.mlh\.io'
+    - 'databricks\.com/university'
+    - 'mvp\.microsoft\.com/studentambassadors'
+    - 'neo\.com/scholars'
+
+  # Real jobs you cannot actually take. Demoted, and NOT rescuable by
+  # allow_titles -- being an AI job does not make an unpaid role paid.
+  restrict_titles:
+    - '\bunpaid\b'
+    - '\bwith\s+(drexel|northeastern|purdue|uiuc|rit|penn state)\b'
+    - '\b(students? only|restricted to)\b'
+
+  # Borderline subject matter: demoted to "Maybe" unless allow_titles rescues
+  # it. Never silently deleted.
+  maybe_titles:
+    - '\bresearch park\b'
+    - '\b(tax|audit|auditing|accounting|payroll|bookkeep)\b'
+    - '\b(human resources|recruiting|recruiter|talent acquisition)\b'
+    - '\b(marketing|advertising|public relations|communications|journalism)\b'
+    - '\b(sales|business development|account executive|purchasing|procurement|supply chain|logistics|warehouse)\b'
+    - '\b(geology|geological|geophysics|petroleum|mining|metallurg)\b'
+    - '\b(nurse|nursing|clinical|pharmac|dental|veterinar|social work)\b'
+    - '\b(paralegal|legal|attorney|compliance officer)\b'
+    - '\b(mechanical|civil|structural|architectural|interior design|culinary|hospitality)\b'
 
 # ----------------------------------------------------------------------------
 # Simplify.jobs
@@ -220,6 +344,16 @@ github_lists:
       repo: sndsh404/summer-2027-internships
       branch: main
       path: README.md
+      # Headings whose tables are not job listings. "programs always open" is
+      # Google Summer of Code and Outreachy -- programmes, not postings.
+      #
+      # NOT listed: "programs open now", which mixes that sort of entry with
+      # three real Apple internships. Skipping it would lose them; the
+      # relevance rules filter it row by row instead.
+      skip_sections:
+        - '^programs always open$'
+        - '^open source programs$'
+        - '^research programs'
 
     - name: speedyapply-intern-usa
       enabled: true
@@ -249,3 +383,8 @@ linkedin:
   f_TPR: r86400     # posted in last 24h
   sort_by: DD       # most recent first
   max_pages: 6      # 25 results per page
+  # No geo filter was being sent at all, so results were worldwide. geoId is
+  # the parameter LinkedIn actually filters on; 103644278 is the United States.
+  location: "United States"
+  geo_id: "103644278"
+  us_only: true     # post-filter too, in case the guest API ignores geoId

@@ -22,6 +22,7 @@ import re
 import time
 
 from ..http import request
+from ..locations import is_us
 from ..models import Job
 
 log = logging.getLogger(__name__)
@@ -88,6 +89,11 @@ def fetch(session, cfg: dict) -> list[Job]:
             "f_TPR": cfg.get("f_TPR", "r86400"),
             "sortBy": cfg.get("sort_by", "DD"),
             "start": str(offset),
+            # No geo filter at all was being sent, so results were worldwide.
+            # geoId is what LinkedIn actually filters on; `location` alone is
+            # advisory. 103644278 is the United States.
+            "location": cfg.get("location", "United States"),
+            "geoId": str(cfg.get("geo_id", "103644278")),
         }
         resp = request(session, "GET", SEARCH_URL, params=params, timeout=30)
 
@@ -120,6 +126,16 @@ def fetch(session, cfg: dict) -> list[Job]:
             break
 
         time.sleep(1.5)
+
+    # Belt and braces: the guest endpoint does not always honour geoId. is_us
+    # is a foreign-DENYLIST that returns True for anything it cannot place, so
+    # it can drop an obvious London posting but never a US one it fails to
+    # recognise -- the safe direction for a filter that runs unattended.
+    if cfg.get("us_only", True):
+        kept = [j for j in jobs if is_us([j.location])]
+        if len(kept) != len(jobs):
+            log.info("LinkedIn: dropped %d non-US posting(s)", len(jobs) - len(kept))
+        jobs = kept
 
     log.info("LinkedIn: %d postings", len(jobs))
     return jobs

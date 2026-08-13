@@ -56,3 +56,40 @@ def test_filter_counts():
     ]
     kept, dropped = filter_internships(jobs)
     assert len(kept) == 1 and dropped == 2
+
+
+class TestWordBoundaries:
+    """The intern regex had no word boundaries, so it matched "Internal",
+    "International", "Cooper" and "Cooperative" -- classifying them as
+    internships and short-circuiting every other check."""
+
+    @pytest.mark.parametrize("title", [
+        "Internal Audit Analyst",
+        "Internally Facing Tools Engineer",
+        "Cooper Standard Manufacturing Engineer",
+        "Cooperative Education Coordinator",
+        "Chief Cooperation Officer",
+    ])
+    def test_substring_lookalikes_are_not_internships(self, title):
+        # A repo source falls through to the new-grad check; LinkedIn requires
+        # the word explicitly. Neither may be fooled by a substring.
+        assert is_internship(job("LinkedIn", title)) is False, title
+
+    @pytest.mark.parametrize("title", [
+        "Software Engineer Intern",
+        "Software Engineering Interns",
+        "Software Engineering Internship",
+        "2027 Software Internships",
+        "Software Engineer Co-op",
+        "Software Engineer Co-Op",
+        "Software Engineer Co op",
+        "Software Engineer Coop",
+        "Software Engineering Co-ops",
+    ])
+    def test_real_spellings_all_match(self, title):
+        assert is_internship(job("LinkedIn", title)) is True, title
+
+    def test_international_still_matches_via_intern(self):
+        """"International" contains "intern" but is not one; with boundaries it
+        no longer short-circuits, so LinkedIn correctly drops it."""
+        assert is_internship(job("LinkedIn", "International Sales Analyst")) is False

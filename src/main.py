@@ -15,13 +15,15 @@ import logging
 import os
 import re
 import sys
-from datetime import datetime
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import canonical, email_render
+from . import canonical, canonical_legacy, corpus, dedupe, email_render, migrate, relevance
 from .http import make_session
 from .models import Job, SourceResult
 from .scrapers import github_md, linkedin, simplify, simplify_repo
@@ -103,18 +105,19 @@ def collect(session, config: dict) -> list[SourceResult]:
     return results
 
 
-# Titles that signal a NON-internship role (new grad / entry level / full time).
-_NEW_GRAD_RE = re.compile(
-    r"\b(new\s*grad(uate)?|graduate\s+(program|role|position|scheme)|\d{4}\s+grads?"
-    r"|associate|entry[\s-]?level|full[\s-]?time|staff|principal|senior|sr\.?|lead"
-    r"|trainee|volunteer|apprentice(ship)?)\b",
-    re.I,
-)
-_INTERN_RE = re.compile(r"intern|co-?op|co op", re.I)
+# Whether a title names an internship. Both regexes live in canonical because
+# the identity key needs the same intern/new-grad judgement to build its level
+# field, and two copies would inevitably drift apart.
+_NEW_GRAD_RE = canonical.NEW_GRAD_RE
+_INTERN_RE = canonical.INTERN_RE
 
 
 def is_internship(job: Job) -> bool:
     """Best-effort 'is this an internship?' for intern-only mode.
+
+    This answers ONLY the seniority question. "Tax Intern" is an internship and
+    is kept here; filtering it out for being off-domain is relevance.py's job.
+    Conflating the two would make both untestable.
 
     LinkedIn's experience filter is noisy, so LinkedIn roles must explicitly say
     intern/co-op. Other sources are internship-curated or Simplify type=Internship,
@@ -133,36 +136,47 @@ def filter_internships(jobs: list[Job]) -> tuple[list[Job], int]:
     return kept, len(jobs) - len(kept)
 
 
-def dedupe(results: list[SourceResult]) -> tuple[list[Job], int]:
-    """Collapse duplicates across sources. Returns (unique jobs, collapsed count).
+def filter_results(results: list[SourceResult], predicate) -> tuple[list[SourceResult], int]:
+    """Apply a per-job predicate to every source, keeping the source structure.
 
-    Direct-link sources are processed first so that when the same job appears
-    both on LinkedIn and elsewhere, we keep the version with a real employer
-    apply URL rather than the LinkedIn one.
+    Filtering happens BEFORE dedupe, and the ordering is load-bearing. Run the
+    other way round and a "SWE, New Grad" row can win the collapse against a
+    "SWE Intern, Summer 2027" row from another source, and then be dropped by
+    the intern filter -- so neither is emailed, and the cluster's keys are never
+    stored, so the same thing happens again on every future run. The internship
+    becomes permanently invisible.
     """
-    ordered = sorted(results, key=lambda r: any(j.indirect for j in r.jobs))
-
-    seen: set[str] = set()
-    unique: list[Job] = []
-    collapsed = 0
-
-    for result in ordered:
-        for job in result.jobs:
-            keys = canonical.keys_for(job)
-            if not keys:
-                continue
-            if any(k in seen for k in keys):
-                collapsed += 1
-                continue
-            seen.update(keys)
-            unique.append(job)
-
-    return unique, collapsed
+    dropped = 0
+    out = []
+    for result in results:
+        kept = [j for j in result.jobs if predicate(j)]
+        dropped += len(result.jobs) - len(kept)
+        out.append(SourceResult(result.name, kept, result.ok, result.error))
+    return out, dropped
 
 
 # --------------------------------------------------------------------------
 # Timezone gate
 # --------------------------------------------------------------------------
+
+def _seen_keys(group, include_legacy: bool) -> list[str]:
+    """Keys to test a cluster against the store with.
+
+    During the migration window the legacy formats are consulted too, covering
+    postings that were not in the scrape when --migrate-keys ran (LinkedIn only
+    shows the last 24h, and a source can be down that day). Legacy keys are
+    never WRITTEN -- that would reintroduce the collisions they caused.
+    """
+    keys = sorted(group.keys)
+    if include_legacy:
+        keys += [k for m in group.members for k in canonical_legacy.legacy_keys_for(m)]
+    return keys
+
+
+def _legacy_window_open(config: dict, now: datetime) -> bool:
+    until = (config.get("dedup") or {}).get("legacy_keys_until", "")
+    return bool(until) and now.strftime("%Y-%m-%d") <= str(until)
+
 
 def local_now(config: dict) -> datetime:
     # DIGEST_TZ (a GitHub Actions Variable / env var) overrides the config file,
@@ -171,14 +185,89 @@ def local_now(config: dict) -> datetime:
     return datetime.now(ZoneInfo(tz_name))
 
 
+def _schedule(config: dict) -> dict:
+    return config.get("schedule") or {}
+
+
+def send_targets(config: dict, now: datetime) -> dict[str, datetime]:
+    """Today's exact local send times, e.g. {'AM': 07:00, 'PM': 19:00}."""
+    am_hour, pm_hour = config.get("send_hours", [7, 19])
+    return {
+        "AM": now.replace(hour=am_hour, minute=0, second=0, microsecond=0),
+        "PM": now.replace(hour=pm_hour, minute=0, second=0, microsecond=0),
+    }
+
+
 def window_slot(config: dict, now: datetime) -> str | None:
-    """Which send window the current local time falls in: 'AM', 'PM', or None."""
-    am_hour, pm_hour = config.get("send_hours", [9, 19])
-    if now.hour >= pm_hour:
-        return "PM"
-    if am_hour <= now.hour < pm_hour:
-        return "AM"
+    """Which send window the current local time falls in: 'AM', 'PM', or None.
+
+    A window OPENS before its send time -- `prep_minutes` early -- so the run
+    can scrape, dedupe and render, then wait and hand the finished email to
+    Gmail exactly on the hour. GitHub Actions cron drifts 10-50 minutes, so
+    firing at the target and hoping is not good enough.
+
+    Each window CLOSES at its deadline. Without one, the AM window ran until
+    the PM window opened, so a morning whose triggers were all dropped could
+    deliver a "morning" digest at 5pm. Past the deadline the slot is simply
+    skipped and the evening digest sweeps up its jobs -- they are still "new
+    since the last email", so nothing is lost.
+    """
+    sched = _schedule(config)
+    prep = timedelta(minutes=sched.get("prep_minutes", 25))
+    targets = send_targets(config, now)
+
+    for slot, deadline_key in (("PM", "pm_deadline"), ("AM", "am_deadline")):
+        target = targets[slot]
+        if now < target - prep:
+            continue
+        deadline = _parse_local_time(sched.get(deadline_key), now)
+        if deadline is not None and now > deadline:
+            continue
+        return slot
     return None
+
+
+def _parse_local_time(value, now: datetime) -> datetime | None:
+    """'23:30' -> today at 23:30 local. None when unset or malformed."""
+    if not value:
+        return None
+    try:
+        hour, _, minute = str(value).partition(":")
+        return now.replace(hour=int(hour), minute=int(minute or 0),
+                           second=59, microsecond=999999)
+    except ValueError:
+        log.warning("Bad schedule time %r - ignoring", value)
+        return None
+
+
+def hold_until_send_time(config: dict, now: datetime, slot: str | None,
+                         *, enabled: bool = True, sleep=time.sleep) -> float:
+    """Wait so the email lands on the target minute. Returns seconds slept.
+
+    All the slow work is already done by the time this is called, so the wait
+    is pure idle. If the trigger arrived late (cron dropped the early ones),
+    the target is already past and this returns immediately.
+    """
+    if not (enabled and slot):
+        return 0.0
+    target = send_targets(config, now).get(slot)
+    if target is None:
+        return 0.0
+
+    delay = (target - datetime.now(target.tzinfo)).total_seconds()
+    cap = _schedule(config).get("max_hold_minutes", 45) * 60
+    if delay <= 0:
+        log.info("Past the %s target (%s) - sending now.", slot, target.strftime("%H:%M"))
+        return 0.0
+    if delay > cap:
+        log.warning("Target %s is %.0f min away, over the %.0f min cap - sending now.",
+                    target.strftime("%H:%M"), delay / 60, cap / 60)
+        return 0.0
+
+    log.info("Holding %.0f s so the %s digest lands at %s.",
+             delay, slot, target.strftime("%H:%M %Z"))
+    sleep(delay)
+    return delay
 
 
 def due_slot(config: dict, now: datetime, store) -> str | None:
@@ -203,8 +292,10 @@ def due_slot(config: dict, now: datetime, store) -> str | None:
     return None
 
 
-def mark_slot_sent(store, now: datetime, config: dict) -> None:
-    slot = window_slot(config, now)
+def mark_slot_sent(store, slot: str | None, now: datetime) -> None:
+    """Record the slot the run actually DECIDED to send, not one re-derived
+    from the clock -- a digest that started at 06:40 and sent at 07:00 must
+    mark AM, and a forced run outside any window must mark nothing."""
     today = now.strftime("%Y-%m-%d")
     if slot == "AM":
         store.last_am_sent = today
@@ -230,6 +321,19 @@ def main() -> int:
     parser.add_argument("--catchup", action="store_true",
                         help="one-time: email ALL currently-open jobs as links, in batches, "
                              "without changing dedup state")
+    parser.add_argument("--migrate-keys", action="store_true",
+                        help="one-time: translate seen-state onto the fixed key "
+                             "formats (combine with --dry-run to preview)")
+    parser.add_argument("--dump-jobs", metavar="PATH",
+                        help="write every scraped job to PATH as JSON (pre-dedup, "
+                             "pre-filter) to refresh the test corpus")
+    parser.add_argument("--audit-filter", action="store_true",
+                        help="report exactly what the relevance filter would "
+                             "drop or demote, and why; no email, no state write")
+    parser.add_argument("--from", dest="from_file", metavar="PATH",
+                        help="read jobs from a --dump-jobs file instead of scraping")
+    parser.add_argument("--no-hold", action="store_true",
+                        help="send immediately instead of waiting for the target time")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -252,7 +356,9 @@ def main() -> int:
     first_run = store.was_empty
 
     # Scheduled runs only send when a digest is due and hasn't gone out yet.
-    scheduled = not (args.dry_run or args.force or args.verify_links or args.catchup)
+    scheduled = not (args.dry_run or args.force or args.verify_links
+                     or args.catchup or args.migrate_keys or args.audit_filter)
+    slot = window_slot(config, now)
     if scheduled:
         slot = due_slot(config, now, store)
         if slot is None:
@@ -266,8 +372,16 @@ def main() -> int:
 
     session = make_session()
 
-    log.info("Scraping sources...")
-    results = collect(session, config)
+    if args.from_file:
+        log.info("Loading jobs from %s (no scrape)", args.from_file)
+        results = corpus.load_results(args.from_file)
+    else:
+        log.info("Scraping sources...")
+        results = collect(session, config)
+
+    if args.dump_jobs:
+        count = corpus.dump_results(results, args.dump_jobs)
+        log.info("Dumped %d raw jobs to %s", count, args.dump_jobs)
 
     failures = [f"{r.name}: {r.error}" for r in results if not r.ok]
     for result in results:
@@ -276,20 +390,45 @@ def main() -> int:
         else:
             log.warning("  %-28s FAILED", result.name)
 
-    unique, collapsed = dedupe(results)
+    if args.migrate_keys:
+        return _run_migration(results, failures, store, args.dry_run)
+
     total_raw = sum(len(r.jobs) for r in results)
-    log.info("Total scraped: %d | after cross-source dedup: %d (collapsed %d)",
-             total_raw, len(unique), collapsed)
+
+    # Filters run per-source, BEFORE dedupe. See filter_results.
+    judge = relevance.load(config)
+
+    # The audit judges RAW scraped jobs -- running it after the filters would
+    # show an empty DROP list, because the drops already happened.
+    if args.audit_filter:
+        return _run_audit(results, judge)
+
+    results, rel_dropped = filter_results(results, judge.tag)
+    if rel_dropped:
+        log.info("Relevance: dropped %d off-domain posting(s)", rel_dropped)
 
     if config.get("intern_only"):
-        unique, dropped = filter_internships(unique)
-        log.info("Intern-only: dropped %d non-internship roles, %d remain", dropped, len(unique))
+        results, dropped = filter_results(results, is_internship)
+        log.info("Intern-only: dropped %d non-internship roles", dropped)
+
+    clusters, collapsed, unusable = dedupe.cluster(results)
+    unique = [c.job for c in clusters]
+    log.info("Total scraped: %d | after cross-source dedup: %d (collapsed %d)",
+             total_raw, len(unique), collapsed)
 
     if args.catchup:
         return _run_catchup(session, unique, failures, run_label(now),
                             smtp_user, smtp_password, recipient)
 
-    new_jobs = [j for j in unique if not store.has_any(canonical.keys_for(j))]
+    legacy = _legacy_window_open(config, now)
+    # Store the union of every cluster member's keys, not just the survivor's:
+    # a member merged in transitively would otherwise go unrecorded and be
+    # emailed again on every future run.
+    keys_for_job = {id(c.job): sorted(c.keys) for c in clusters}
+    new_jobs = [
+        c.job for c in clusters
+        if not store.has_any(_seen_keys(c, legacy))
+    ]
     log.info("New since last email: %d", len(new_jobs))
 
     if args.verify_links:
@@ -306,9 +445,6 @@ def main() -> int:
         log.info("Resolving %d Simplify apply links...", len(simplify_new))
         simplify.resolve_apply_urls(session, simplify_new)
 
-    for job in new_jobs:
-        store.add(canonical.keys_for(job))
-
     if args.dry_run:
         _print_dry_run(new_jobs, first_run)
         return 0
@@ -317,30 +453,39 @@ def main() -> int:
 
     if first_run:
         # Baseline instead of emailing the entire backlog.
-        for job in unique:
-            store.add(canonical.keys_for(job))
+        for group in clusters:
+            store.add(sorted(group.keys))
         html_body, text_body = email_render.render_first_run(len(unique), label)
-        messages = [(f"[Job Digest] Initialised - tracking {len(unique)} postings",
-                     html_body, text_body)]
+        messages = [DigestPart(f"[Job Digest] Initialised - tracking {len(unique)} postings",
+                               html_body, text_body, [])]
         log.info("First run: baselining %d postings instead of sending them all", len(unique))
     else:
-        period = "AM" if now.hour < 12 else "PM"
         messages = _digest_messages(new_jobs, failures, label,
-                                    now.strftime("%b %-d"), period)
+                                    now.strftime("%b %-d"), slot)
 
     if not (smtp_user and smtp_password and recipient):
         log.error("Missing GMAIL_USER / GMAIL_APP_PASSWORD / RECIPIENT - cannot send.")
         return 1
 
-    for subject, html_body, text_body in messages:
+    # Land the digest on the exact minute the user expects it, having done all
+    # the slow work already. Only scheduled runs wait: someone who clicked "Run
+    # workflow" or passed --force wants the email now, not in twenty minutes.
+    hold_until_send_time(config, now, slot,
+                         enabled=scheduled and not args.no_hold)
+
+    def send(part):
         email_render.send_email(
-            subject=subject, html_body=html_body, text_body=text_body,
+            subject=part.subject, html_body=part.html, text_body=part.text,
             smtp_user=smtp_user, smtp_password=smtp_password, recipient=recipient,
         )
 
+    if not deliver(messages, store, send, keys_for_job, persist=not args.no_store):
+        # Leave the slot unsent so the next run finishes the job, and go red.
+        return 1
+
     # Record that this slot's digest has gone out, so later runs in the same
-    # window don't re-send. Only when this is (or falls in) a real send window.
-    mark_slot_sent(store, now, config)
+    # window don't re-send.
+    mark_slot_sent(store, slot, now)
 
     if not args.no_store:
         store.save()
@@ -359,7 +504,22 @@ def main() -> int:
 GMAIL_CLIP_BYTES = 92_000
 
 
-def _pack(ordered: list[Job], render) -> list[list[Job]]:
+@dataclass
+class DigestPart:
+    """One outgoing email, and the jobs it delivers.
+
+    Carrying the jobs is what makes a partial failure recoverable: the send
+    loop records a part's keys only once that part is actually accepted by
+    Gmail, so a failure on part 3 of 4 re-sends part 3 onward and nothing else.
+    """
+
+    subject: str
+    html: str
+    text: str
+    jobs: list[Job] = field(default_factory=list)
+
+
+def _pack(ordered: list[Job], render, label: str = "") -> list[list[Job]]:
     """Split jobs into batches that each render under the clip threshold.
 
     Dividing by the average entry size is not enough: entries vary several-fold
@@ -367,11 +527,18 @@ def _pack(ordered: list[Job], render) -> list[list[Job]]:
     so an average-sized split can still produce an oversized part when the large
     entries cluster. Each candidate batch is therefore measured, and any batch
     that still renders too big is halved until it fits.
+
+    Measuring uses the same run label the real send will carry. Measuring with
+    an empty one understates every part by the label's length, which is enough
+    to let a batch measured at just under the limit go out just over it.
     """
     if not ordered:
         return [ordered]
 
-    full = len(render(ordered, "", [])[0])
+    def size(batch):
+        return len(render(batch, label, [])[0])
+
+    full = size(ordered)
     n = len(ordered)
 
     # Work out how many parts are needed, then spread the jobs evenly across
@@ -382,7 +549,7 @@ def _pack(ordered: list[Job], render) -> list[list[Job]]:
     for _ in range(8):  # a handful of widenings is always enough in practice
         per_part = -(-n // parts)
         batches = [ordered[i:i + per_part] for i in range(0, n, per_part)]
-        if all(len(render(b, "", [])[0]) <= GMAIL_CLIP_BYTES for b in batches):
+        if all(size(b) <= GMAIL_CLIP_BYTES for b in batches):
             return batches
         parts += 1
 
@@ -392,7 +559,7 @@ def _pack(ordered: list[Job], render) -> list[list[Job]]:
     pending = list(batches)
     while pending:
         batch = pending.pop(0)
-        if len(batch) > 1 and len(render(batch, "", [])[0]) > GMAIL_CLIP_BYTES:
+        if len(batch) > 1 and size(batch) > GMAIL_CLIP_BYTES:
             mid = len(batch) // 2
             pending[:0] = [batch[:mid], batch[mid:]]
             continue
@@ -401,32 +568,43 @@ def _pack(ordered: list[Job], render) -> list[list[Job]]:
 
 
 def _digest_messages(jobs: list[Job], failures: list[str], label: str,
-                     date_label: str, period: str) -> list[tuple[str, str, str]]:
+                     date_label: str, period: str) -> list[DigestPart]:
     """Render the digest as one email, or several if it would be clipped.
 
-    Returns a list of (subject, html, text). The split point is measured from
-    the actual rendered size rather than assumed from a job count, because
-    entries vary a lot in length -- a role with a long title, two locations and
-    a salary is several times the size of a bare one.
+    Each part carries the jobs it contains, so the caller can record exactly
+    what was delivered if a later part fails to send.
+
+    The split point is measured from the actual rendered size rather than
+    assumed from a job count, because entries vary a lot in length -- a role
+    with a long title, two locations and a salary is several times the size of
+    a bare one.
     """
     def render(batch, extra_label, batch_failures):
-        direct = [j for j in batch if not j.indirect]
-        indirect = [j for j in batch if j.indirect]
-        return (email_render.render_html(direct, indirect, batch_failures, extra_label),
-                email_render.render_text(direct, indirect, batch_failures, extra_label))
+        direct = [j for j in batch if not j.indirect and j.relevance != relevance.MAYBE]
+        indirect = [j for j in batch if j.indirect and j.relevance != relevance.MAYBE]
+        maybe = [j for j in batch if j.relevance == relevance.MAYBE]
+        return (email_render.render_html(direct, indirect, batch_failures, extra_label, maybe),
+                email_render.render_text(direct, indirect, batch_failures, extra_label, maybe))
 
-    count = len(jobs)
+    n_maybe = sum(1 for j in jobs if j.relevance == relevance.MAYBE)
+    count = len(jobs) - n_maybe
     plural = "s" if count != 1 else ""
+    suffix = f" (+{n_maybe} maybe)" if n_maybe else ""
     html, text = render(jobs, label, failures)
 
     if len(html) <= GMAIL_CLIP_BYTES or not jobs:
-        return [(f"[Job Digest] {count} new posting{plural} - {date_label} {period}",
-                 html, text)]
+        return [DigestPart(
+            f"[Job Digest] {count} new posting{plural}{suffix} - {date_label} {period}",
+            html, text, list(jobs))]
 
     # Sort before splitting so each part stays grouped by employer rather than
-    # interleaving one company's roles across two emails.
-    ordered = sorted(jobs, key=lambda j: (j.indirect, j.company.lower(), j.title.lower()))
-    batches = _pack(ordered, render)
+    # interleaving one company's roles across two emails, and so the Maybe
+    # section lands together at the end rather than once per part.
+    ordered = sorted(jobs, key=lambda j: (j.relevance == relevance.MAYBE, j.indirect,
+                                          j.company.lower(), j.title.lower()))
+    # Pack against a worst-case part label, since "part 9 of 9" is longer than
+    # the plain label and the real send will carry it.
+    batches = _pack(ordered, render, f"{label}  ·  part 88 of 88")
     total = len(batches)
     log.info("Digest is %dKB - splitting into %d emails so Gmail cannot clip it",
              len(html) // 1024, total)
@@ -436,10 +614,10 @@ def _digest_messages(jobs: list[Job], failures: list[str], label: str,
         # Source failures belong on the first part only, not repeated on each.
         part_html, part_text = render(batch, f"{label}  ·  part {idx} of {total}",
                                       failures if idx == 1 else [])
-        messages.append((
-            f"[Job Digest] {count} new posting{plural} - {date_label} {period} "
-            f"({idx}/{total})",
-            part_html, part_text,
+        messages.append(DigestPart(
+            f"[Job Digest] {count} new posting{plural}{suffix} - {date_label} "
+            f"{period} ({idx}/{total})",
+            part_html, part_text, list(batch),
         ))
     return messages
 
@@ -489,6 +667,102 @@ def _run_catchup(session, unique, failures, label, smtp_user, smtp_password, rec
         log.info("Sent catch-up email %d/%d (%d jobs)", idx, total_parts, len(batch))
 
     log.info("Catch-up complete. State unchanged; normal digests continue as usual.")
+    return 0
+
+
+def deliver(messages, store, send, keys_for_job: dict | None = None,
+            *, persist: bool = True) -> bool:
+    """Send each part, recording what actually arrived. True if all went out.
+
+    State is written after EACH part, not once at the end. A digest split into
+    three emails that failed on part two used to save nothing, so the next run
+    re-sent all three -- a transient SMTP error produced a duplicate digest.
+    Saving per part means a failure re-sends only what did not arrive.
+    """
+    keys_for_job = keys_for_job or {}
+    for index, part in enumerate(messages, 1):
+        try:
+            send(part)
+        except Exception:
+            log.exception("Part %d of %d failed to send; %d part(s) already "
+                          "recorded", index, len(messages), index - 1)
+            return False
+        for job in part.jobs:
+            # Union of the cluster's keys and the job's keys as they are NOW: a
+            # Simplify click stub is resolved to a real employer URL after
+            # clustering, and both forms must be recorded or the resolved one
+            # looks new tomorrow.
+            store.add(sorted(set(keys_for_job.get(id(job), ()))
+                             | set(canonical.keys_for(job))))
+        if persist:
+            store.save()
+    return True
+
+
+def _run_migration(results, failures, store, preview: bool) -> int:
+    """--migrate-keys. Returns a process exit code."""
+    if failures:
+        # A source that failed contributes no jobs, so none of its stored
+        # legacy keys can be translated -- and every one of its postings would
+        # then look new and be re-emailed. Refuse rather than flood.
+        log.error("Not migrating: %d source(s) failed (%s). Re-run when all "
+                  "sources are healthy.", len(failures), "; ".join(failures))
+        return 1
+
+    report = migrate.run(store, results, apply=not preview)
+    print(report.render())
+
+    if preview:
+        log.info("Preview only - state not written. Re-run without --dry-run to apply.")
+        return 0
+
+    store.save()
+    log.info("Migration applied. The next digest sends %d one-time catch-up "
+             "posting(s).", report.one_time_resends)
+    return 0
+
+
+def _run_audit(results, judge) -> int:
+    """--audit-filter: show exactly what the relevance rules do, and why.
+
+    Run this before turning the filter on. The SAVED section is the important
+    one -- it lists jobs the allowlist rescued from an off-domain pattern, which
+    is where a rule that is too broad shows itself.
+    """
+    if not judge.enabled:
+        print("\nrelevance.enabled is false in config/sources.yaml - "
+              "everything is kept. Showing what the rules WOULD do.\n")
+        judge.enabled = True
+
+    buckets: dict[tuple[str, str, str], list] = {}
+    counts = {relevance.KEEP: 0, relevance.MAYBE: 0, relevance.DROP: 0}
+    rescued = 0
+
+    for result in results:
+        for job in result.jobs:
+            verdict = judge.judge(job)
+            counts[verdict.action] += 1
+            if verdict.rescued:
+                rescued += 1
+                buckets.setdefault(("SAVED", verdict.rule, verdict.pattern), []).append(job)
+            elif verdict.action != relevance.KEEP:
+                label = verdict.action.upper()
+                buckets.setdefault((label, verdict.rule, verdict.pattern), []).append(job)
+
+    for label in ("DROP", "MAYBE", "SAVED"):
+        for (kind, rule, pattern), jobs in sorted(buckets.items()):
+            if kind != label:
+                continue
+            print(f"\n{kind:5} {rule}  {pattern}")
+            for job in sorted(jobs, key=lambda j: (j.company.lower(), j.title.lower())):
+                print(f"      {job.company[:34]:34} {job.title[:56]:56} [{job.source}]")
+                print(f"        {job.apply_url}")
+
+    total = sum(counts.values())
+    print(f"\nSUMMARY  {total} judged | keep {counts[relevance.KEEP]} | "
+          f"maybe {counts[relevance.MAYBE]} | drop {counts[relevance.DROP]} | "
+          f"saved-by-allowlist {rescued}")
+    print("No email sent, no state written.")
     return 0
 
 
