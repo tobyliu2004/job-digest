@@ -384,6 +384,19 @@ def main() -> int:
         log.info("Dumped %d raw jobs to %s", count, args.dump_jobs)
 
     failures = [f"{r.name}: {r.error}" for r in results if not r.ok]
+
+    # A source that returns ZERO postings without raising is the dangerous
+    # case: nothing errors, the digest looks normal, and one of seven sources
+    # has quietly stopped contributing. It has happened here already -- the
+    # SimplifyJobs repo switched its README to HTML tables and the markdown
+    # parser returned 0 jobs silently (see scrapers/simplify_repo.py). Every
+    # healthy source returns 50+ postings, so zero means broken, not empty.
+    for result in results:
+        if result.ok and not result.jobs:
+            log.warning("  %-28s returned 0 postings - likely broken", result.name)
+            failures.append(f"{result.name}: returned 0 postings (source may have "
+                            f"changed format)")
+
     for result in results:
         if result.ok:
             log.info("  %-28s %4d postings", result.name, len(result.jobs))

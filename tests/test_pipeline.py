@@ -211,3 +211,45 @@ class TestStorageDiscipline:
 
         maybes = [c for c in out["clusters"] if c.job.relevance == relevance.MAYBE]
         assert all(empty_store.has_any(sorted(c.keys)) for c in maybes)
+
+
+class TestBrokenSourceIsVisible:
+    """A source that raises is reported. A source that quietly returns nothing
+    is the one that goes unnoticed -- and it has happened here: the SimplifyJobs
+    repo switched its README to HTML tables and the markdown parser returned 0
+    jobs with no error at all."""
+
+    def _failures(self, results):
+        failures = [f"{r.name}: {r.error}" for r in results if not r.ok]
+        for r in results:
+            if r.ok and not r.jobs:
+                failures.append(f"{r.name}: returned 0 postings (source may have "
+                                f"changed format)")
+        return failures
+
+    def test_a_zero_yield_source_is_reported(self):
+        results = [SourceResult("SimplifyJobs", []),
+                   SourceResult("sndsh404", [Job("A", "SWE Intern", "https://x.com/1", "s")])]
+        failures = self._failures(results)
+        assert len(failures) == 1
+        assert "SimplifyJobs" in failures[0]
+
+    def test_a_healthy_run_reports_nothing(self):
+        results = [SourceResult("s", [Job("A", "SWE Intern", "https://x.com/1", "s")])]
+        assert self._failures(results) == []
+
+    def test_a_raising_source_is_still_reported(self):
+        results = [SourceResult("LinkedIn", [], ok=False, error="HTTP 429")]
+        failures = self._failures(results)
+        assert any("HTTP 429" in f for f in failures)
+
+    def test_it_reaches_the_email(self):
+        """The warning is useless in a log nobody reads; it has to be in the
+        digest itself."""
+        from src.main import _digest_messages
+
+        job = Job("A", "SWE Intern", "https://x.com/1", "s")
+        failures = self._failures([SourceResult("SimplifyJobs", [])])
+        part = _digest_messages([job], failures, "l", "Aug 14", "AM")[0]
+        assert "SimplifyJobs" in part.html
+        assert "SimplifyJobs" in part.text
