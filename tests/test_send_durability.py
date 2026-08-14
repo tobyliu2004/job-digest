@@ -154,3 +154,90 @@ class TestResolvedUrlsAreAlsoRecorded:
         assert store.has_any(["url:simplify.jobs/jobs/click/" + uuid])
         assert store.has_any(["url:citadel.com/careers/details/x"])
         assert store.has_any([f"sj:{uuid}"])
+
+
+class TestAmbiguousKeysAreNeverWritten:
+    """The real case, from Boeing on 2026-08-13: one Data Analytics internship
+    run as TWO Workday requisitions (JR2026520976 on the intern board,
+    JR2026520976-1 on the external one). Both produce the same tier-2 identity
+    key, so dedupe strips it -- and the send path must not put it back."""
+
+    def _boeing_pair(self):
+        from src.models import SourceResult
+        common = dict(company="The Boeing Company", title="Data Analytics Intern",
+                      source="SimplifyJobs", location="Ridley Park, PA, Seattle, WA",
+                      season="Summer 2027")
+        a = Job(apply_url="https://boeing.wd1.myworkdayjobs.com/INTERN/job/x/"
+                          "Data-Analytics-Intern_JR2026520976", **common)
+        b = Job(apply_url="https://boeing.wd1.myworkdayjobs.com/EXTERNAL_CAREERS/job/x/"
+                          "Data-Analytics-Intern_JR2026520976-1", **common)
+        return [SourceResult("SimplifyJobs", [a, b])]
+
+    def test_the_two_requisitions_stay_separate(self):
+        from src import dedupe
+        clusters, _, _ = dedupe.cluster(self._boeing_pair())
+        assert len(clusters) == 2
+
+    def test_the_shared_identity_key_is_stripped(self):
+        from src import canonical, dedupe
+        clusters, _, _ = dedupe.cluster(self._boeing_pair())
+        shared = canonical.identity_key("The Boeing Company", "Data Analytics Intern",
+                                        "Ridley Park, PA, Seattle, WA", "Summer 2027")
+        assert all(shared not in c.keys for c in clusters)
+
+    def test_the_send_path_does_not_write_it_back(self):
+        from src import canonical, dedupe
+        from src.main import _keys_to_store
+
+        clusters, _, _ = dedupe.cluster(self._boeing_pair())
+        keys_for_job = {id(c.job): sorted(c.keys) for c in clusters}
+        shared = canonical.identity_key("The Boeing Company", "Data Analytics Intern",
+                                        "Ridley Park, PA, Seattle, WA", "Summer 2027")
+
+        store = FakeStore()
+        for c in clusters:
+            store.add(_keys_to_store(c.job, keys_for_job))
+
+        assert shared not in store.keys, (
+            "an ambiguous key was stored; whichever requisition drops out of "
+            "the feed first would silently suppress the other"
+        )
+
+    def test_neither_requisition_suppresses_the_other_later(self):
+        """The consequence test: one variant disappears, the other must still
+        be recognised as already-sent -- and not by the shared key."""
+        from src import dedupe
+        from src.main import _keys_to_store
+
+        results = self._boeing_pair()
+        clusters, _, _ = dedupe.cluster(results)
+        keys_for_job = {id(c.job): sorted(c.keys) for c in clusters}
+        store = FakeStore()
+        for c in clusters:
+            store.add(_keys_to_store(c.job, keys_for_job))
+
+        # Tomorrow only the intern-board requisition is in the feed, so its
+        # identity key is no longer ambiguous and is no longer stripped.
+        from src.models import SourceResult
+        solo = [SourceResult("SimplifyJobs", [results[0].jobs[0]])]
+        again, _, _ = dedupe.cluster(solo)
+        assert store.has_any(sorted(again[0].keys)), "already-sent job looks new"
+
+    def test_a_resolved_url_is_still_recorded(self):
+        """The reason the send path adds a key back at all."""
+        from src import canonical, dedupe
+        from src.main import _keys_to_store
+        from src.models import SourceResult
+
+        uuid = "de926b0a-99e7-4dbd-94cd-334ec5600000"
+        stub = Job(company="Citadel", title="Data Scientist Intern",
+                   apply_url=f"https://simplify.jobs/jobs/click/{uuid}",
+                   source="Simplify", extra={"simplify_id": uuid})
+        clusters, _, _ = dedupe.cluster([SourceResult("Simplify", [stub])])
+        keys_for_job = {id(c.job): sorted(c.keys) for c in clusters}
+
+        stub.apply_url = "https://www.citadel.com/careers/details/x"   # resolved
+        stored = _keys_to_store(stub, keys_for_job)
+
+        assert canonical.canonical_url_key(stub.apply_url) in stored
+        assert f"sj:{uuid}" in stored

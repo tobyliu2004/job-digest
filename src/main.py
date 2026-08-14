@@ -670,6 +670,31 @@ def _run_catchup(session, unique, failures, label, smtp_user, smtp_password, rec
     return 0
 
 
+def _keys_to_store(job: Job, keys_for_job: dict) -> list[str]:
+    """What to record for a delivered job.
+
+    The cluster's keys, plus the job's apply-URL key as it stands NOW -- a
+    Simplify click stub is resolved to the employer's real URL after
+    clustering, and both forms must be recorded or the resolved one looks new
+    tomorrow.
+
+    Only the URL key is added back, never the whole of keys_for(job). dedupe
+    deliberately strips keys it proved ambiguous, and Boeing shows why: it runs
+    one Data Analytics internship as two Workday requisitions (JR2026520976 on
+    its intern board, JR2026520976-1 on its external one). Both produce the
+    same tier-2 identity key, so that key cannot identify either of them.
+    Re-adding it here would store a key matching both, and the moment one
+    requisition drops out of the feed the other would match it and be
+    suppressed for good -- the exact silent loss the stripping exists to
+    prevent. A resolved URL key has no such problem: it belongs to one posting.
+    """
+    keys = set(keys_for_job.get(id(job), ()))
+    url_key = canonical.canonical_url_key(job.apply_url)
+    if url_key:
+        keys.add(url_key)
+    return sorted(keys)
+
+
 def deliver(messages, store, send, keys_for_job: dict | None = None,
             *, persist: bool = True) -> bool:
     """Send each part, recording what actually arrived. True if all went out.
@@ -688,12 +713,7 @@ def deliver(messages, store, send, keys_for_job: dict | None = None,
                           "recorded", index, len(messages), index - 1)
             return False
         for job in part.jobs:
-            # Union of the cluster's keys and the job's keys as they are NOW: a
-            # Simplify click stub is resolved to a real employer URL after
-            # clustering, and both forms must be recorded or the resolved one
-            # looks new tomorrow.
-            store.add(sorted(set(keys_for_job.get(id(job), ()))
-                             | set(canonical.keys_for(job))))
+            store.add(_keys_to_store(job, keys_for_job))
         if persist:
             store.save()
     return True
