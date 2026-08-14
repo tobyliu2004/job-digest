@@ -45,7 +45,13 @@ def fresh_results(corpus_results):
 
 @pytest.fixture
 def seen_snapshot(tmp_path):
-    """A writable copy of real production state (3,431 keys)."""
+    """Real production state as it stood BEFORE the key migration (3,431 keys).
+
+    Deliberately frozen at that moment and never refreshed: it is the input the
+    migration tests need. Replacing it with current state would leave those
+    tests asserting that already-migrated keys migrate fine, which proves
+    nothing.
+    """
     path = tmp_path / "seen.json"
     shutil.copy(SEEN_SNAPSHOT, path)
     return SeenStore(path)

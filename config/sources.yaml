@@ -306,16 +306,22 @@ simplifyjobs_feed:
   # untagged entry cannot be confirmed as a 2027 role.
   years: ["2027", "2028"]
 
-  # The repo's own category vocabulary, matching its README sections. Hardware
-  # Engineering and Product Management are deliberately excluded. Both the
-  # current and legacy category names are listed because the feed still
-  # contains records written under the old ones.
-  categories:
-    - Software                              # "Software Engineering" section
-    - Software Engineering
-    - AI/ML/Data                            # "Data Science, AI & ML" section
-    - Data Science, AI & Machine Learning
-    - Quant                                 # "Quantitative Finance" section
+  # A DENYLIST, not an allowlist -- this is the most important source, so it
+  # errs toward letting a posting through and judging it on its title.
+  #
+  # Listing only the wanted categories silently dropped everything Simplify
+  # filed elsewhere, and "Hardware" turned out to hold two literal "Software
+  # Engineer Intern - Summer 2027" postings at RTX, an Embedded Software Co-op,
+  # a Flight Software Intern, Tesla firmware, and FPGA roles at DRW, Optiver,
+  # Virtu, HPR and Kepler. Simplify can also invent a category name whenever it
+  # likes, and an allowlist would drop that one too, silently.
+  #
+  # Product management is a genuinely different job, so it stays out. Anything
+  # unrecognised is INCLUDED and logged, then filtered on its title by the
+  # `relevance:` rules above.
+  exclude_categories:
+    - Product
+    - Product Management
 
 # ----------------------------------------------------------------------------
 # GitHub markdown job lists

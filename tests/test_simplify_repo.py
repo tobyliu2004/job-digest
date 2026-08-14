@@ -184,3 +184,70 @@ class TestUsHelper:
 
     def test_foreign_fails(self):
         assert not is_us(["London, UK"])
+
+
+class TestCategoryDenylist:
+    """The most important source, so it errs toward letting a posting through.
+
+    An allowlist of category names silently dropped everything Simplify filed
+    elsewhere. "Hardware" held two literal "Software Engineer Intern - Summer
+    2027" postings at RTX, an Embedded Software Co-op, a Flight Software Intern
+    and FPGA roles at DRW, Optiver, Virtu, HPR and Kepler.
+    """
+
+    def _feed(self, *cats):
+        return [
+            {"active": True, "is_visible": True, "category": c,
+             "company_name": f"Co {i}", "title": "Software Engineer Intern",
+             "url": f"https://job-boards.greenhouse.io/c{i}/jobs/{i}",
+             "terms": ["Summer 2027"], "locations": ["New York, NY"], "id": str(i)}
+            for i, c in enumerate(cats)
+        ]
+
+    def _fetch(self, records, **cfg):
+        import src.scrapers.simplify_repo as mod
+        real = mod.get_json
+        mod.get_json = lambda *a, **k: records
+        try:
+            return mod.fetch(None, {"name": "SimplifyJobs", **cfg})
+        finally:
+            mod.get_json = real
+
+    def test_hardware_is_included(self):
+        jobs = self._fetch(self._feed("Hardware"),
+                           exclude_categories=["Product", "Product Management"])
+        assert len(jobs) == 1
+
+    def test_product_is_excluded(self):
+        jobs = self._fetch(self._feed("Product", "Product Management", "Software"),
+                           exclude_categories=["Product", "Product Management"])
+        assert len(jobs) == 1
+
+    def test_an_unknown_category_is_included_not_dropped(self):
+        """Simplify can invent a category name at any time. Dropping it would
+        be silent; including it lets the relevance rules judge the title."""
+        jobs = self._fetch(self._feed("Platform Engineering"),
+                           exclude_categories=["Product"])
+        assert len(jobs) == 1
+
+    def test_an_unknown_category_is_logged(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            self._fetch(self._feed("Platform Engineering"), exclude_categories=["Product"])
+        assert "unrecognised category" in caplog.text
+        assert "Platform Engineering" in caplog.text
+
+    def test_a_known_category_logs_nothing(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            self._fetch(self._feed("Software", "Hardware", "Quant"),
+                        exclude_categories=["Product"])
+        assert "unrecognised category" not in caplog.text
+
+    def test_the_shipped_config_keeps_rtx_software_roles(self):
+        """Guards the exact postings the old allowlist was dropping."""
+        import yaml
+        from src.main import CONFIG_PATH
+        cfg = yaml.safe_load(open(CONFIG_PATH))["simplifyjobs_feed"]
+        assert "Hardware" not in (cfg.get("exclude_categories") or [])
+        assert not cfg.get("categories"), "an allowlist would drop new categories again"

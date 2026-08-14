@@ -46,6 +46,15 @@ def _wanted_season(terms: list[str], wanted_years: list[str]) -> bool:
     return any(any(year in t for year in wanted_years) for t in real)
 
 
+# Category names observed in the feed on 2026-08-14. Used only to notice a NEW
+# one, never to filter -- filtering is exclude_categories' job.
+_KNOWN_CATEGORIES = {
+    "Software", "Software Engineering", "AI/ML/Data",
+    "Data Science, AI & Machine Learning", "Quant", "Hardware",
+    "Hardware Engineering", "Product", "Product Management",
+}
+
+
 def fetch(session, cfg: dict) -> list[Job]:
     url = FEED_URL.format(
         repo=cfg.get("repo", "SimplifyJobs/Summer2027-Internships"),
@@ -56,12 +65,21 @@ def fetch(session, cfg: dict) -> list[Job]:
     if not isinstance(data, list):
         raise ValueError(f"Expected a JSON list from {url}, got {type(data).__name__}")
 
+    # A DENYLIST, not an allowlist. Simplify files jobs under nine category
+    # names today and can add more whenever it likes; an allowlist silently
+    # drops anything new, and got this wrong once already -- "Hardware" held
+    # two literal "Software Engineer Intern - Summer 2027" postings at RTX,
+    # plus FPGA roles at DRW, Optiver, Virtu and HPR. Naming only what we do
+    # not want means a new category flows through and the relevance rules judge
+    # it on the title, which is the safe direction.
+    excluded = set(cfg.get("exclude_categories") or [])
     categories = set(cfg.get("categories") or [])
     wanted_years = [str(y) for y in (cfg.get("years") or ["2027"])]
     us_only = cfg.get("us_only", True)
     name = cfg.get("name", "SimplifyJobs")
 
     jobs: list[Job] = []
+    seen_categories: set[str] = set()
     skipped = {"inactive": 0, "category": 0, "season": 0, "non_us": 0}
 
     for rec in data:
@@ -69,7 +87,9 @@ def fetch(session, cfg: dict) -> list[Job]:
             skipped["inactive"] += 1
             continue
 
-        if categories and rec.get("category") not in categories:
+        category = rec.get("category")
+        seen_categories.add(category)
+        if category in excluded or (categories and category not in categories):
             skipped["category"] += 1
             continue
 
@@ -111,6 +131,12 @@ def fetch(session, cfg: dict) -> list[Job]:
         "%d non-US]", name, len(jobs), skipped["inactive"], skipped["category"],
         skipped["season"], skipped["non_us"],
     )
+    # Surface a category name we have never seen, so a new one is a line in the
+    # log rather than a silent gap in the digest.
+    unknown = seen_categories - excluded - _KNOWN_CATEGORIES - {None}
+    if unknown:
+        log.warning("%s: unrecognised category name(s) %s - included by default; "
+                    "add to exclude_categories if unwanted", name, sorted(unknown))
     return jobs
 
 
