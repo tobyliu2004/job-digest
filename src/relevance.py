@@ -3,24 +3,36 @@
 is_internship in main.py answers seniority. This answers domain: a "Tax Intern"
 is a real internship and passes that filter, but it is not a software job.
 
-WHY THE ALLOWLIST IS CHECKED FIRST, AND WINS OUTRIGHT
+RULE ORDER (see judge() -- the first match wins)
 
-The obvious design -- a blocklist of off-domain words -- quietly deletes real
-jobs. Measured against 1,533 titles from live state, a broad off-domain regex
-matched 94, and most were roles worth seeing: "hardware engineer", "embedded
-software", "software quality engineer", "trust and safety engineer". A
-tech-keyword allowlist used as the *only* gate is just as bad in the other
-direction; it would have dropped "Infrastructure Intern" (Etched), "Video
-Algorithms Intern" (Netflix) and "Gameplay Programmer Intern" (Epic Games),
-all real postings scraped on 2026-08-13.
+    1. block_titles / block_companies / block_urls -> drop
+    2. restrict_titles                             -> demote to Maybe
+    3. maybe_titles, unless allow_titles rescues   -> demote to Maybe
+    4. otherwise                                   -> keep
 
-So the rules are ordered, and a title that looks like software engineering is
-immune to everything below it:
+Steps 1 and 2 are facts about the posting and the allowlist cannot touch them.
+Only step 3 is a guess about subject matter, so only step 3 consults it.
 
-    1. allow_titles     -> keep, unconditionally
-    2. block_*          -> drop
-    3. maybe_titles     -> demote to the Maybe section
-    4. otherwise        -> keep
+WHY STEP 3 NEEDS AN ALLOWLIST AT ALL
+
+A blocklist of off-domain words used alone quietly deletes real jobs: measured
+against 1,533 titles from live state, a broad off-domain regex matched 94, and
+many were roles worth seeing -- "embedded software", "software quality
+engineer", "trust and safety engineer". A tech-keyword allowlist used as the
+*only* gate is just as bad in the other direction; it would have dropped
+"Infrastructure Intern" (Etched), "Video Algorithms Intern" (Netflix) and
+"Gameplay Programmer Intern" (Epic Games), all real postings from 2026-08-13.
+Letting the allowlist override only the off-domain guess gets both right.
+
+WHAT THE ALLOWLIST MUST NOT CONTAIN
+
+Every word in allow_titles rescues a posting outright, so a word that is not
+exclusively software silently disables the rule it was meant to refine. Bare
+"engineer" did exactly that: it rescued every hardware title, and the
+2026-08-14 digest opened with nine ASIC/FPGA/silicon/thermal roles. Adding the
+hardware patterns to maybe_titles while leaving allow_titles alone moved
+exactly one posting out of 1,033. Widen maybe_titles and allow_titles together,
+or not at all -- and check with --audit-filter, not by reasoning about it.
 
 DROPPED JOBS ARE NOT REMEMBERED
 

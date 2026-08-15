@@ -60,10 +60,14 @@ intern_only: true
 #   4. otherwise        -> KEEP
 #
 # Only step 3 consults allow_titles, because only step 3 is a guess about
-# subject matter. A pure blocklist deletes real jobs ("hardware engineer",
-# "software quality engineer"); a pure tech allowlist deletes different real
-# jobs ("Infrastructure Intern", "Video Algorithms Intern"). Letting the
-# allowlist override just the off-domain guess gets both right.
+# subject matter. A pure blocklist deletes real jobs ("software quality
+# engineer"); a pure tech allowlist deletes different real jobs
+# ("Infrastructure Intern", "Video Algorithms Intern"). Letting the allowlist
+# override just the off-domain guess gets both right.
+#
+# The target is SOFTWARE. Hardware -- ASIC, FPGA, silicon, electrical, thermal
+# -- is off-domain and demoted at step 3. Embedded, firmware, robotics and
+# autonomy are NOT: they write code, and they stay in the main list.
 #
 # Steps 1 and 2 are facts about the posting, not opinions about its field:
 # "AI Engineer (Unpaid Internship)" is obviously an AI job and still unpaid.
@@ -80,19 +84,38 @@ relevance:
   # off   = keep everything
   mode: maybe
 
-  # Anything that looks like software/data/quant work. Be generous: this list
-  # only ever RESCUES a posting the off-domain list below would have demoted,
-  # so a false positive here costs one extra row, never a lost job.
+  # Vocabulary that marks a posting as SOFTWARE work. One hit here rescues a
+  # title outright from maybe_titles below, so every entry must be a word that
+  # only a software job would use.
   #
-  # Deliberately absent: bare "code" (matched "Summer of Code"), "technology"
-  # and "IT" (matched "Tax Technology Intern", "IT Audit Intern"), and
-  # "trading"/"trader" (matched "Global Markets Sales & Trading Analyst").
-  # Genuine quant roles still pass on "quant"/"quantitative".
+  # THIS LIST IS NOT A PLACE TO BE GENEROUS. It was, and the cost was the
+  # 2026-08-14 digest: 9 of 20 rows were ASIC/FPGA/silicon/thermal roles. The
+  # SimplifyJobs feed had just been widened from a category allowlist to a
+  # denylist (see simplifyjobs_feed below) on the premise that these rules would
+  # judge the domain instead -- and they could not, because bare "engineer" and
+  # the words "hardware|silicon|asic|fpga" lived here and rescued every one.
+  # Measured on tests/fixtures/live_jobs.json (1,033 unique titles): adding the
+  # hardware patterns to maybe_titles while leaving this list alone moved
+  # exactly ONE posting. Removing those two entries moved 18 more.
+  #
+  # Deliberately absent, each for a measured reason:
+  #   engineer/engineering  -- rescues every engineering title ever written,
+  #                            which made the mechanical/civil rule below dead
+  #   hardware/silicon/asic/fpga -- the roles this filter exists to demote
+  #   bare "systems"        -- rescued "Electronic Design Engineer - Electronic
+  #                            Systems"; the software senses are spelled out
+  #   bare "code"           -- matched "Summer of Code"
+  #   technology / IT       -- matched "Tax Technology Intern", "IT Audit Intern"
+  #   trading / trader      -- matched "Global Markets Sales & Trading Analyst";
+  #                            real quant roles still pass on "quant"
+  #
+  # Still present on purpose: embedded, firmware, robotics, autonomy. Those
+  # write code for hardware and belong in the main list -- they are what keeps
+  # "Embedded Software Co-op" and "Flight Software Intern" out of Maybe.
   allow_titles:
     - '\b(software|swe|sde|developer|programmer|coding)\b'
-    - '\b(engineer|engineering)\b'
-    - '\b(infrastructure|platform|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|distributed|systems?)\b'
-    - '\b(embedded|firmware|hardware|silicon|asic|fpga|compiler|kernel|operating system|graphics|gameplay|game)\b'
+    - '\b(infrastructure|platform|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|distributed systems?|operating systems?|systems software|systems engineer)\b'
+    - '\b(embedded|firmware|compiler|kernel|graphics|gameplay|game)\b'
     - '\b(ml|machine\s*learning|ai|artificial intelligence|deep\s*learning|nlp|computer\s*vision|algorithms?|research scientist|applied scientist)\b'
     - '\b(data|analytics|quant|quantitative|statistics|statistical)\b'
     - '\b(security|cyber|devops|sre|cloud|network|mobile|ios|android|web|robotics|autonomy|autonomous|simulation)\b'
@@ -137,10 +160,43 @@ relevance:
     - '\b(human resources|recruiting|recruiter|talent acquisition)\b'
     - '\b(marketing|advertising|public relations|communications|journalism)\b'
     - '\b(sales|business development|account executive|purchasing|procurement|supply chain|logistics|warehouse)\b'
-    - '\b(geology|geological|geophysics|petroleum|mining|metallurg)\b'
+    # Earth sciences. "geoscience"/"geoscientist"/"geosciences" share no whole
+    # word with "geology" or "geophysics", so the original three-word list let
+    # BP's "Geoscience Intern - Geoscientist" through on 2026-08-14. Matched as
+    # a PREFIX (no trailing \b) for that reason.
+    - '\b(geolog|geoscien|geophys|petroleum|mining|metallurg|hydrolog|seismic|drilling|reservoir)'
     - '\b(nurse|nursing|clinical|pharmac|dental|veterinar|social work)\b'
     - '\b(paralegal|legal|attorney|compliance officer)\b'
     - '\b(mechanical|civil|structural|architectural|interior design|culinary|hospitality)\b'
+
+    # Product management. A genuinely different job -- simplifyjobs_feed already
+    # excludes its "Product" category, but PM roles still arrive via the other
+    # sources. Deliberately NOT bare "product": "Fullstack Engineer Intern -
+    # Product Team" is a software job. Deliberately NOT "product development",
+    # which describes SWE work as often as PM work.
+    - '\bproduct\s+(manage(r|ment)|owner|marketing)\b'
+
+    # Business rotational and operations programmes. allow_titles still rescues
+    # the technical ones ("Data Operations Intern", "Technology and Operations
+    # Intern - Data") on their data/software vocabulary.
+    - '\b(rotational?\s+program|leadership\s+development\s+program)\b'
+    - '\boperations\s+(management|finance|analyst|intern)\b|\bcorporate\s+functions\b'
+
+    # Unspecific catch-alls: real postings, but not a stated role. Demoted
+    # rather than blocked, because some do resolve to software -- CloudFit's
+    # "Future Intern, Early Interest (Summer 2027, Software / AI/ML)" is
+    # rescued by allow_titles and stays in the main list.
+    - '\ball\s+tracks\b|\bearly\s+interest\b|\bgeneral\s+application\b'
+
+    # Hardware. Demoted rather than dropped, and deliberately so: Simplify files
+    # real software jobs under its "Hardware" category (RTX "Software Engineer
+    # Intern", Varda "Flight Software", Specter "Embedded Software Co-op"), and
+    # allow_titles still rescues any title that also speaks software -- Tesla's
+    # "Applied AI Engineer Intern - AI Hardware" stays in the main list on "ai".
+    # A title with no software word left in it lands in Maybe, tagged with the
+    # rule that caught it, so a miscategorised posting is one glance away.
+    - '\b(asic|fpga|vlsi|rtl|rf|silicon|semiconductor|photonics?|analog|mixed[- ]signal|pcb|circuits?|power electronics|signal integrity|chip design|physical design)\b'
+    - '\b(hardware|electrical|electronics?|thermal|mechatronics?|manufacturing|industrial|aerospace|propulsion|materials|optics?|optical|antenna|radar)\b'
 
 # ----------------------------------------------------------------------------
 # Simplify.jobs
