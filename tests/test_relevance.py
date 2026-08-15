@@ -175,6 +175,78 @@ def test_hardware_is_demoted(title, judge):
     )
 
 
+class TestSourceCategory:
+    """The SimplifyJobs feed's own category, used as a hint.
+
+    Only that feed publishes one. It is demonstrably unreliable -- on the
+    2026-08-15 feed, 15 of 32 "Hardware" postings were real software jobs --
+    so it demotes at the same tier as a title rule and allow_titles overrides
+    it. These tests pin both halves of that.
+    """
+
+    def categorised(self, title, category, company="Acme"):
+        return Job(company=company, title=title, source="SimplifyJobs",
+                   apply_url="https://job-boards.greenhouse.io/acme/jobs/1",
+                   extra={"category": category})
+
+    @pytest.mark.parametrize("title", [
+        "Product Engineer Intern",          # East Penn: no hardware word at all
+        "Product Engineering Intern",       # Moog: likewise
+        "Engineer Intern - Spring 2027",    # TMEIC: no domain word at all
+        "Photonics Intern",                 # a word no title rule lists
+    ])
+    def test_hardware_category_catches_titles_no_rule_anticipates(self, title, judge):
+        """The whole point: catch postings without extending a word list."""
+        assert judge.judge(self.categorised(title, "Hardware")).action == relevance.MAYBE
+
+    @pytest.mark.parametrize("title", [
+        "Software Engineer Intern - Summer 2027",   # RTX, x5 on the real feed
+        "Flight Software Intern",                   # Varda
+        "Embedded Software Co-op",                  # Specter
+        "Firmware Engineer Intern",                 # Tesla
+        "Embedded Systems Engineer Co-op",          # GE Aerospace
+        "Applied AI Engineer Intern - AI Hardware",  # Tesla
+    ])
+    def test_the_title_overrides_a_wrong_category(self, title, judge):
+        """Simplify miscategorises real software jobs as Hardware.
+
+        Every title here is a genuine posting filed under "Hardware" on the
+        2026-08-15 feed. Trusting the category would lose all of them -- the
+        exact regression b26efa6 was written to undo.
+        """
+        verdict = judge.judge(self.categorised(title, "Hardware"))
+        assert verdict.action == relevance.KEEP, (
+            f"{title!r} was demoted by its source category. The category is a "
+            f"hint, not an authority -- allow_titles must win."
+        )
+
+    def test_an_unrecognised_category_falls_through_to_the_title(self, judge):
+        """Simplify can invent a category name at any time.
+
+        An unknown name must not demote by itself, or a rename upstream would
+        silently empty the digest.
+        """
+        assert judge.judge(
+            self.categorised("Backend Engineer Intern", "Some New Name")
+        ).action == relevance.KEEP
+        assert judge.judge(
+            self.categorised("ASIC Design Engineer Intern", "Some New Name")
+        ).action == relevance.MAYBE  # still caught, by its title
+
+    def test_sources_without_a_category_are_unaffected(self, judge):
+        """~70% of the corpus has no category; the title rules carry it."""
+        assert judge.judge(job("Backend Engineer Intern")).action == relevance.KEEP
+        assert judge.judge(job("FPGA Engineer Intern")).action == relevance.MAYBE
+
+    def test_the_shipped_config_lists_no_software_category(self):
+        """Guards the inverse mistake: demoting Software/AI-ML/Quant wholesale."""
+        with open(CONFIG_PATH) as fh:
+            categories = set(yaml.safe_load(fh)["relevance"].get("maybe_categories") or [])
+        for wanted in ("Software", "Software Engineering", "AI/ML/Data", "Quant",
+                       "Data Science, AI & Machine Learning"):
+            assert wanted not in categories, f"{wanted} must never be demoted"
+
+
 def test_allow_titles_holds_no_word_that_rescues_all_hardware(judge):
     """The 2026-08-14 regression, as an assertion.
 
@@ -299,11 +371,11 @@ class TestAgainstTheLiveCorpus:
     def test_the_vast_majority_is_untouched(self, judge, corpus_jobs):
         """Of the three rate guards, this is the one with slack left.
 
-        After the 2026-08-14 rules (hardware, earth sciences, product
-        management, operations) the corpus sits at 95.8% keep (1375/1436)
-        against a 95% floor -- about 11 postings of slack, so the next widening
-        is likely to trip this. Drops are unchanged and the maybe rate is 3.6%
-        against a 10% ceiling, so this is the binding guard.
+        After the 2026-08-14/15 rules (hardware, earth sciences, product
+        management, operations, source category) the corpus sits at 95.5% keep
+        (1372/1436) against a 95% floor -- about 8 postings of slack, so the
+        next widening is likely to trip this. Drops are unchanged and the maybe
+        rate is 3.8% against a 10% ceiling, so this is the binding guard.
 
         When it does trip, re-measure with --audit-filter and read the MAYBE
         section row by row. Lowering 0.95 to make it green is the one response

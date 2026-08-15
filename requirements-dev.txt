@@ -1,2 +1,8 @@
 # Test-only dependencies. The digest itself needs only requirements.txt.
 pytest>=8.0.0
+
+# NOTE: `--audit-classifier` (src/classify.py) needs `pip install anthropic`.
+# It is deliberately NOT listed here. The workflow installs this file on every
+# run, and the classifier is an occasional local dry-run tool -- nothing in the
+# send path imports it, main.py imports it lazily inside the flag's handler,
+# and no test touches it. It prints an install hint if it is missing.

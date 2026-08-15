@@ -330,6 +330,17 @@ def main() -> int:
     parser.add_argument("--audit-filter", action="store_true",
                         help="report exactly what the relevance filter would "
                              "drop or demote, and why; no email, no state write")
+    parser.add_argument("--audit-classifier", action="store_true",
+                        help="DRY RUN: classify every title with the model in "
+                             "src/classify.py and report where it disagrees with "
+                             "the regex rules. Costs API tokens; no email, no "
+                             "state write, and the digest path is untouched")
+    parser.add_argument("--classifier-model", metavar="ID",
+                        help="model to use for --audit-classifier "
+                             "(default: src.classify.MODEL)")
+    parser.add_argument("--limit", type=int, metavar="N",
+                        help="--audit-classifier: only judge the first N unique "
+                             "titles, to sample before paying for the full corpus")
     parser.add_argument("--from", dest="from_file", metavar="PATH",
                         help="read jobs from a --dump-jobs file instead of scraping")
     parser.add_argument("--no-hold", action="store_true",
@@ -357,7 +368,8 @@ def main() -> int:
 
     # Scheduled runs only send when a digest is due and hasn't gone out yet.
     scheduled = not (args.dry_run or args.force or args.verify_links
-                     or args.catchup or args.migrate_keys or args.audit_filter)
+                     or args.catchup or args.migrate_keys or args.audit_filter
+                     or args.audit_classifier)
     slot = window_slot(config, now)
     if scheduled:
         slot = due_slot(config, now, store)
@@ -415,6 +427,9 @@ def main() -> int:
     # show an empty DROP list, because the drops already happened.
     if args.audit_filter:
         return _run_audit(results, judge)
+
+    if args.audit_classifier:
+        return _run_classifier_audit(results, judge, args)
 
     results, rel_dropped = filter_results(results, judge.tag)
     if rel_dropped:
@@ -796,6 +811,87 @@ def _run_audit(results, judge) -> int:
           f"maybe {counts[relevance.MAYBE]} | drop {counts[relevance.DROP]} | "
           f"saved-by-allowlist {rescued}")
     print("No email sent, no state written.")
+    return 0
+
+
+def _run_classifier_audit(results, judge, args) -> int:
+    """--audit-classifier: regex rules vs. the model, side by side.
+
+    Reports DISAGREEMENTS ONLY. Agreement is the boring majority and printing
+    it buries the rows that matter -- the point of the run is to see what a
+    semantic judgement would change before trusting it with the digest.
+
+    Both columns judge the same raw scrape, before any filter has run, so the
+    comparison is like-for-like with --audit-filter.
+    """
+    from . import classify
+
+    if not judge.enabled:
+        judge.enabled = True
+
+    # One verdict per distinct title: the same posting arrives from several
+    # sources, and paying to classify "FPGA Engineer Intern" four times would
+    # only inflate the bill.
+    by_title: dict[str, list] = {}
+    for result in results:
+        for job in result.jobs:
+            by_title.setdefault(job.title, []).append(job)
+
+    titles = sorted(by_title)
+    if args.limit:
+        titles = titles[:args.limit]
+        print(f"\nSampling the first {len(titles)} of {len(by_title)} unique titles.")
+
+    model = args.classifier_model or classify.MODEL
+    print(f"\nClassifying {len(titles)} unique titles with {model}...")
+
+    def progress(done, total):
+        print(f"  {done}/{total}", end="\r", flush=True)
+
+    try:
+        verdicts = classify.classify(titles, model=model, progress=progress)
+    except classify.ClassifierUnavailable as exc:
+        print(f"\nClassifier unavailable: {exc}")
+        print("\nThe digest itself is unaffected -- this flag is a dry run and "
+              "nothing in the send path uses the classifier.")
+        return 1
+    print(" " * 30, end="\r")
+
+    # The regex side calls everything that is not KEEP a non-software verdict,
+    # so the two columns answer the same yes/no question.
+    buckets: dict[str, list[tuple[str, str]]] = {
+        "MODEL SAYS SOFTWARE, RULES DEMOTE OR DROP": [],
+        "MODEL SAYS OTHER, RULES KEEP": [],
+    }
+    agreed = unjudged = 0
+
+    for title in titles:
+        if title not in verdicts:
+            unjudged += 1
+            continue
+        verdict, reason = verdicts[title]
+        rules_keep = judge.judge(by_title[title][0]).action == relevance.KEEP
+        model_keep = verdict == "software"
+        if rules_keep == model_keep:
+            agreed += 1
+        elif model_keep:
+            buckets["MODEL SAYS SOFTWARE, RULES DEMOTE OR DROP"].append((title, reason))
+        else:
+            buckets["MODEL SAYS OTHER, RULES KEEP"].append((title, reason))
+
+    for label, rows in buckets.items():
+        print(f"\n{label}  ({len(rows)})")
+        if not rows:
+            print("      (none)")
+        for title, reason in sorted(rows):
+            company = by_title[title][0].company
+            print(f"      {company[:26]:26} {title[:52]:52} | {reason}")
+
+    judged = len(titles) - unjudged
+    rate = f"{agreed / judged:.1%}" if judged else "n/a"
+    print(f"\nSUMMARY  {judged} judged | agreed {agreed} ({rate}) | "
+          f"disagreed {judged - agreed} | no verdict {unjudged}")
+    print("No email sent, no state written, digest path untouched.")
     return 0
 
 

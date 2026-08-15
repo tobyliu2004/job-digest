@@ -73,6 +73,10 @@ class Relevance:
         self._block_urls = _compile(cfg, "block_urls")
         self._restrict = _compile(cfg, "restrict_titles")
         self._maybe = _compile(cfg, "maybe_titles")
+        # Exact names, not regexes: the feed's category vocabulary is a short
+        # closed set, and an exact match makes an unrecognised name fall
+        # through to the title rules rather than half-matching something.
+        self._maybe_categories = set(cfg.get("maybe_categories") or [])
 
     def judge(self, job) -> Verdict:
         if not self.enabled or self.mode == "off":
@@ -102,7 +106,15 @@ class Relevance:
             rule, pattern = restricted
             return Verdict(DROP if self.mode == "drop" else MAYBE, rule, pattern)
 
-        maybe_hit = _labelled(_first(self._maybe, job.title), "maybe_titles")
+        # A title rule fires first; the source's own category is the backstop
+        # for titles whose vocabulary no rule anticipated. It is only ever a
+        # HINT -- measured on the 2026-08-15 feed, 15 of 32 postings Simplify
+        # files under "Hardware" are real software jobs (five RTX "Software
+        # Engineer Intern", Varda "Flight Software", Specter "Embedded Software
+        # Co-op", Tesla firmware). So it demotes exactly like a title rule
+        # does, and allow_titles below rescues all of those.
+        maybe_hit = (_labelled(_first(self._maybe, job.title), "maybe_titles")
+                     or _labelled(self._category(job), "maybe_categories"))
         if not maybe_hit:
             return Verdict(KEEP)
 
@@ -116,6 +128,17 @@ class Relevance:
         rule, pattern = maybe_hit
         # mode: drop treats the borderline list as a blocklist too.
         return Verdict(DROP if self.mode == "drop" else MAYBE, rule, pattern)
+
+    def _category(self, job) -> str:
+        """The job's source category, if it is one we demote on.
+
+        Only the SimplifyJobs feed carries a category (src/scrapers/
+        simplify_repo.py puts it in Job.extra). Every other source returns ""
+        here and is judged on its title alone -- which is why the hardware
+        title rules stay: they cover the ~70% of the corpus with no category.
+        """
+        category = (getattr(job, "extra", None) or {}).get("category") or ""
+        return category if category in self._maybe_categories else ""
 
     def tag(self, job) -> bool:
         """Judge a job, record the verdict on it, and say whether to keep it.

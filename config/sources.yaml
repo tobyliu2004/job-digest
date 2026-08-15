@@ -198,6 +198,34 @@ relevance:
     - '\b(asic|fpga|vlsi|rtl|rf|silicon|semiconductor|photonics?|analog|mixed[- ]signal|pcb|circuits?|power electronics|signal integrity|chip design|physical design)\b'
     - '\b(hardware|electrical|electronics?|thermal|mechatronics?|manufacturing|industrial|aerospace|propulsion|materials|optics?|optical|antenna|radar)\b'
 
+  # Source categories that suggest off-domain work. Checked only when no
+  # maybe_titles rule fired, and rescuable by allow_titles exactly like one.
+  #
+  # Matched against the SimplifyJobs feed's own `category` field, which
+  # src/scrapers/simplify_repo.py carries on Job.extra. No other source
+  # publishes a usable discipline label -- the markdown lists head their tables
+  # "The List", and the Simplify Typesense index is already category-filtered
+  # server-side -- so this covers roughly a quarter of the corpus and the title
+  # rules above carry the rest. That is why both exist.
+  #
+  # A HINT, NOT AN AUTHORITY. Measured on the 2026-08-15 feed: of 32 postings
+  # Simplify files under "Hardware", 15 are real software jobs -- five RTX
+  # "Software Engineer Intern", Varda "Flight Software", Specter "Embedded
+  # Software Co-op", Tesla firmware, GE Aerospace embedded. Treating the
+  # category as ground truth would silently lose every one of them, which is
+  # the exact regression b26efa6 was written to undo.
+  #
+  # Its value is the postings whose titles use vocabulary no rule anticipated:
+  # East Penn "Product Engineer Intern" and Moog "Product Engineering Intern"
+  # contain no hardware word at all and are caught here.
+  #
+  # Product is absent on purpose: simplifyjobs_feed excludes it at the source.
+  # Checked 2026-08-15 -- all 37 Product postings are genuine PM roles, so
+  # nothing software-shaped is being hidden by that exclusion.
+  maybe_categories:
+    - Hardware
+    - Hardware Engineering
+
 # ----------------------------------------------------------------------------
 # Simplify.jobs
 #
