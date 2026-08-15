@@ -206,6 +206,49 @@ class TestLegacyModuleIsFrozen:
         assert canonical.normalize_location("Austin, TX") == "austin tx"
 
 
+class TestLegacyWindowStaysClosed:
+    """The read window is closed for good. Re-opening it hides new postings.
+
+    Legacy keys are season-blind: canonical_legacy.identity_key takes only
+    (company, title, location), and normalize_title strips seasons and years,
+    so "SWE Intern - Summer 2027", "... (Winter 2027)" and a bare "SWE Intern"
+    share one key. On 2026-08-15 that suppressed Notion's Summer 2027 posting
+    -- scraped, filtered, then dropped against a key with no season in it --
+    along with 56 others in the same run.
+    """
+
+    def test_the_shipped_config_does_not_reopen_the_window(self):
+        from src.main import _legacy_window_open, CONFIG_PATH
+        import yaml
+        with open(CONFIG_PATH) as fh:
+            cfg = yaml.safe_load(fh)
+        assert not _legacy_window_open(cfg, datetime(2026, 8, 15)), (
+            "config/sources.yaml re-enables dedup.legacy_keys_until. Those keys "
+            "carry no season, so any company with an older seen posting has its "
+            "new-season postings silently dropped."
+        )
+
+    def test_a_new_season_is_not_suppressed_by_an_older_posting(self):
+        """The Notion case, as an assertion.
+
+        The two postings differ only by season. Their current keys must differ;
+        the legacy keys, which is what broke, must not be what we compare on.
+        """
+        summer = job(company="Notion", title="Software Engineer Intern - Summer 2027",
+                     location="San Francisco, CA", season="Summer 2027")
+        winter = job(company="Notion", title="Software Engineer Intern - Winter 2027",
+                     location="San Francisco, CA", season="Winter 2027")
+        assert set(canonical.keys_for(summer)) & set(canonical.keys_for(winter)) == set(), (
+            "two different seasons share a current key"
+        )
+        # ...and this is the collision that made the window unsafe:
+        assert (set(canonical_legacy.legacy_keys_for(summer))
+                & set(canonical_legacy.legacy_keys_for(winter))), (
+            "legacy keys no longer collide -- if this fails the module changed "
+            "and this guard needs rewriting"
+        )
+
+
 class TestLegacyReadWindow:
     def test_open_window_consults_legacy_keys(self):
         from src.main import _legacy_window_open

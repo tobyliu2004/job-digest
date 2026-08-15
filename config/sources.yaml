@@ -34,13 +34,33 @@ schedule:
 # Deduplication
 # ----------------------------------------------------------------------------
 dedup:
-  # Until this date the seen-check ALSO consults the pre-2026-08-13 key formats
-  # (see src/canonical_legacy.py). That covers postings which were not in the
-  # scrape when `--migrate-keys` ran, such as anything LinkedIn had already
-  # aged out of its 24-hour window. Legacy keys are never written.
+  # legacy_keys_until IS GONE ON PURPOSE -- DO NOT PUT IT BACK.
   #
-  # After this date: delete src/canonical_legacy.py and this block.
-  legacy_keys_until: "2026-09-15"
+  # It used to hold "2026-09-15", which made the seen-check also consult the
+  # pre-2026-08-13 key formats (src/canonical_legacy.py) as cover for postings
+  # absent from the scrape when `--migrate-keys` ran.
+  #
+  # Those legacy keys are SEASON-BLIND. canonical_legacy.identity_key takes
+  # only (company, title, location) -- no season, no level -- and
+  # normalize_title strips seasons and years, so "Software Engineer Intern -
+  # Summer 2027", "... (Winter 2027)" and a bare "Software Engineer Intern"
+  # all collapse to one key. Any company with an older seen posting therefore
+  # had its NEW-season postings silently suppressed.
+  #
+  # Found 2026-08-15: Notion's "Software Engineer Intern - Summer 2027" was
+  # scraped, passed every filter, and was dropped by the legacy key
+  # `id:notion|software engineer|san francisco ca new york ny` -- while its
+  # real key, ending `|intern|su2027`, was unseen. 57 postings were being
+  # suppressed this way in a single run.
+  #
+  # That is precisely the failure this codebase treats as the worst one:
+  # sending a job twice is visible and mildly annoying, hiding one is silent
+  # and permanent. The migration ran on 2026-08-13 and its own tests cover the
+  # key translation, so the extra window bought little and cost a month of
+  # dropped postings.
+  #
+  # src/canonical_legacy.py stays -- `--migrate-keys` (src/migrate.py) still
+  # needs it to read the old formats.
 
 # Internship-only mode. When true, new-grad / entry-level / full-time roles are
 # filtered out: LinkedIn results must say "intern"/"co-op", and any source's
