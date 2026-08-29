@@ -1,6 +1,16 @@
 name: Job Digest
 
 on:
+  # PRIMARY TRIGGER. GitHub's own cron is best-effort and it degraded badly:
+  # the schedule below asks for 32 triggers a day, GitHub delivered ~12, then
+  # 2 on 2026-08-27 and 2 on 2026-08-28 -- arriving 1-7 hours late, so none
+  # landed in a send window and the digest went silent for three days while
+  # every run stayed green. An external timezone-aware cron (cron-job.org)
+  # POSTs to /dispatches at 06:47 and 18:47 America/New_York, which lands
+  # inside the prep window; src/main.py then holds until exactly 07:00/19:00.
+  repository_dispatch:
+    types: [digest, heartbeat]
+
   # The digest must LAND at 07:00 and 19:00 Eastern. GitHub Actions cron is
   # UTC-only, ignores DST, and routinely delays triggers by 10-50 minutes, so
   # firing at the target time and hoping produced 09:52-11:50 deliveries for a
@@ -21,6 +31,8 @@ on:
   #   19:00 ET target -> prep opens 18:35 ET -> 22:35 UTC (EDT) / 23:35 (EST)
   # The extra hours are catch-up for badly delayed triggers, bounded by the
   # am_deadline / pm_deadline in config/sources.yaml.
+  # FALLBACK ONLY -- see repository_dispatch above. Kept so a cron-job.org
+  # outage still has a chance of delivering.
   schedule:
     - cron: '5,20,35,50 10,11,12,13,22,23,0,1 * * *'
 
@@ -78,6 +90,7 @@ jobs:
         run: pytest -q -m "not live"
 
       - name: Run digest
+        if: github.event.action != 'heartbeat'
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -94,6 +107,7 @@ jobs:
           python -m src.main $ARGS
 
       - name: Commit updated state
+        if: github.event.action != 'heartbeat'
         run: |
           if [ -n "$(git status --porcelain state/)" ]; then
             git config user.name  "github-actions[bot]"
@@ -106,3 +120,15 @@ jobs:
           else
             echo "No state change to commit."
           fi
+
+      # Silence is the failure mode this project could not see. A digest that
+      # stops sending produces no error, no red run and no email -- an empty
+      # inbox is indistinguishable from a quiet week. This step reads the last
+      # send date out of state/seen.json and FAILS if it has gone stale, so
+      # GitHub's own failure notification becomes the alert.
+      #
+      # Fired by cron-job.org, deliberately not by GitHub's schedule: a
+      # watchdog wired to the mechanism it is watching is no watchdog at all.
+      - name: Heartbeat - fail if the digest has gone silent
+        if: github.event.action == 'heartbeat'
+        run: python -m src.main --check-stale

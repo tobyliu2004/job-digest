@@ -16,8 +16,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.main import (due_slot, hold_until_send_time, mark_slot_sent,
-                      send_targets, window_slot)
+from src.main import (_check_stale, due_slot, hold_until_send_time,
+                      mark_slot_sent, send_targets, window_slot)
 
 CFG = {
     "send_hours": [7, 19],
@@ -177,3 +177,90 @@ class TestOnlyScheduledRunsWait:
         assert hold_until_send_time(CFG, at(6, 40), "AM",
                                     enabled=False, sleep=calls.append) == 0
         assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# late_send: a missed window must degrade to a LATE email, never to silence.
+#
+# Regression cover for the 2026-08-26 outage. GitHub delivered 2 of 32
+# scheduled triggers a day, hours off-target (16:17, 02:04 and 17:10 local),
+# so not one run landed in a send window. Every run exited 0 with "Nothing
+# due", every check was green, and no digest arrived for three days.
+#
+# CFG above deliberately omits `late_send`, so the cases higher up in this file
+# still assert the old skip-past-the-deadline behaviour.
+# ---------------------------------------------------------------------------
+
+LATE_CFG = {**CFG, "schedule": {**CFG["schedule"], "late_send": True}}
+
+
+@pytest.mark.parametrize(
+    "desc,now,store,expected",
+    [
+        # The real Aug 27 / Aug 28 wake-ups. Both must now deliver.
+        ("4:17pm, AM window missed entirely", at(16, 17), FakeStore(), "AM"),
+        ("5:10pm, AM window missed entirely", at(17, 10), FakeStore(), "AM"),
+        # 2:04am was the third surviving trigger; nothing is owed that early.
+        ("2:04am, no slot has come due yet", at(2, 4), FakeStore(), None),
+        ("1pm, past the AM deadline, AM unsent", at(13), FakeStore(), "AM"),
+        ("11:59pm, past the PM deadline, PM unsent", at(23, 59), FakeStore(), "PM"),
+        # Only the LATEST passed slot is offered, so a normal PM send is not
+        # chased by a redundant "AM (late)" minutes later.
+        ("11:59pm, PM sent, AM never sent", at(23, 59), FakeStore(pm=TODAY), None),
+        ("5pm, AM already sent normally", at(17), FakeStore(am=TODAY), None),
+        # Inside a window, nothing changes -- this is not the late path.
+        ("7pm exact still routes through the window", at(19), FakeStore(), "PM"),
+    ],
+)
+def test_late_send_covers_a_missed_window(desc, now, store, expected):
+    assert due_slot(LATE_CFG, now, store) == expected, desc
+
+
+@pytest.mark.parametrize("now", [at(13), at(16, 17), at(23, 59)])
+def test_late_send_off_keeps_skipping(now):
+    """The escape hatch still works: late_send: false is the old behaviour."""
+    assert due_slot(CFG, now, FakeStore()) is None
+
+
+def test_a_late_slot_is_marked_sent_like_any_other():
+    """A late digest must still record itself, or the next run resends it."""
+    store = FakeStore()
+    slot = due_slot(LATE_CFG, at(16, 17), store)
+    mark_slot_sent(store, slot, at(16, 17))
+    assert store.last_am_sent == TODAY
+    assert due_slot(LATE_CFG, at(17, 30), store) is None
+
+
+def test_late_send_does_not_hold():
+    """The target is already past, so a late run sends immediately."""
+    assert hold_until_send_time(LATE_CFG, at(16, 17), "AM",
+                                sleep=lambda s: pytest.fail("must not sleep")) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# The watchdog. Silence was the one failure this project could not see.
+# ---------------------------------------------------------------------------
+
+class TestCheckStale:
+    def test_today_is_fine(self):
+        assert _check_stale(FakeStore(am=TODAY, pm=TODAY), at(20)) == 0
+
+    def test_yesterday_is_fine(self):
+        assert _check_stale(FakeStore(pm="2026-07-24"), at(20)) == 0
+
+    def test_three_days_of_silence_goes_red(self):
+        """The actual outage: last send 08-26, checked on 08-29."""
+        store = FakeStore(am="2026-08-26", pm="2026-08-26")
+        assert _check_stale(store, datetime(2026, 8, 29, 21, 30, tzinfo=TZ)) == 1
+
+    def test_never_sent_goes_red(self):
+        assert _check_stale(FakeStore(), at(20)) == 1
+
+    def test_the_more_recent_slot_wins(self):
+        """AM stale but PM fresh is a healthy digest, not a stale one."""
+        assert _check_stale(FakeStore(am="2026-01-01", pm=TODAY), at(20)) == 0
+
+    def test_threshold_is_configurable(self):
+        store = FakeStore(pm="2026-07-22")
+        assert _check_stale(store, at(20), max_age_days=1) == 1
+        assert _check_stale(store, at(20), max_age_days=5) == 0

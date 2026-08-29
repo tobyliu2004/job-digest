@@ -30,6 +30,18 @@ schedule:
   am_deadline: "12:00"
   pm_deadline: "23:30"
 
+  # What happens when a slot's window closes without a single trigger landing
+  # in it. false = skip the slot (the old behaviour). true = send it LATE from
+  # the next run of the day, subject marked "(late)".
+  #
+  # This is on because of the 2026-08-26 outage: GitHub delivered 2 of the 32
+  # scheduled triggers a day, all of them hours off-target (16:17, 02:04,
+  # 17:10 local), so no run ever landed in a window and the digest went silent
+  # for three days while every run reported success. Only the latest passed
+  # slot is offered, so this cannot produce two emails back to back -- see
+  # late_slot in src/main.py.
+  late_send: true
+
 # ----------------------------------------------------------------------------
 # Deduplication
 # ----------------------------------------------------------------------------

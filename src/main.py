@@ -270,6 +270,36 @@ def hold_until_send_time(config: dict, now: datetime, slot: str | None,
     return delay
 
 
+def late_slot(config: dict, now: datetime, store) -> str | None:
+    """The slot a missed window still owes, or None.
+
+    `window_slot` deliberately CLOSES a window at its deadline, so a day whose
+    triggers all land outside the windows sends nothing at all. That is exactly
+    how this went silent from 2026-08-26 to 08-28: GitHub delivered 2 of 32
+    scheduled triggers a day, hours late (16:17, 02:04, 17:10 local), every run
+    went green, and no email went out for three days.
+
+    With `late_send` on, any run still delivers a slot that is past its target
+    and unsent -- just with "(late)" in the subject. A digest at an odd hour
+    beats another silent outage.
+
+    Only the LATEST passed slot is considered. An evening digest is "new since
+    the last email", so it already sweeps up whatever a missed morning would
+    have carried; offering the morning one too would mean two near-identical
+    emails minutes apart. If that latest slot has already gone out, nothing is
+    owed -- the earlier slot's jobs went out inside it.
+    """
+    if not _schedule(config).get("late_send", False):
+        return None
+    today = now.strftime("%Y-%m-%d")
+    targets = send_targets(config, now)
+    sent = {"AM": store.last_am_sent, "PM": store.last_pm_sent}
+    for slot in ("PM", "AM"):
+        if now >= targets[slot]:
+            return slot if sent[slot] != today else None
+    return None
+
+
 def due_slot(config: dict, now: datetime, store) -> str | None:
     """Which digest is due right now and hasn't been sent yet today.
 
@@ -283,7 +313,10 @@ def due_slot(config: dict, now: datetime, store) -> str | None:
     """
     slot = window_slot(config, now)
     if slot is None:
-        return None
+        # No window is open. Rather than skip the day entirely, hand back
+        # anything still owed so a trigger outage degrades to a late email
+        # instead of silence. See late_slot.
+        return late_slot(config, now, store)
     today = now.strftime("%Y-%m-%d")
     if slot == "PM" and store.last_pm_sent != today:
         return "PM"
@@ -301,6 +334,34 @@ def mark_slot_sent(store, slot: str | None, now: datetime) -> None:
         store.last_am_sent = today
     elif slot == "PM":
         store.last_pm_sent = today
+
+
+def _check_stale(store, now: datetime, max_age_days: int = 1) -> int:
+    """Go red when the digest has stopped arriving. Returns a process exit code.
+
+    The 2026-08-26 outage was invisible for three days precisely because
+    nothing failed: GitHub simply stopped delivering triggers, every run that
+    did arrive exited 0 with "Nothing due", and an empty inbox looks exactly
+    like a quiet week for internship postings. This turns that silence into a
+    red run, which GitHub emails about by default.
+
+    Driven by the same external cron as the digest, NOT by GitHub's schedule --
+    a watchdog wired to the mechanism it is watching is no watchdog at all.
+    """
+    last = max([d for d in (store.last_am_sent, store.last_pm_sent) if d],
+               default="")
+    cutoff = (now - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
+    # ISO dates sort lexicographically, so a string compare is a date compare.
+    if last and last >= cutoff:
+        log.info("Heartbeat OK - last digest %s (cutoff %s).", last, cutoff)
+        return 0
+    log.error(
+        "STALE: last digest was %s, which is older than %s. The digest has "
+        "stopped sending -- check that the cron-job.org trigger is still "
+        "firing and that recent runs reached a send window.",
+        last or "never", cutoff,
+    )
+    return 1
 
 
 def run_label(now: datetime) -> str:
@@ -345,6 +406,13 @@ def main() -> int:
                         help="read jobs from a --dump-jobs file instead of scraping")
     parser.add_argument("--no-hold", action="store_true",
                         help="send immediately instead of waiting for the target time")
+    parser.add_argument("--check-stale", action="store_true",
+                        help="heartbeat: exit non-zero if no digest has gone out "
+                             "recently. Scrapes nothing and sends nothing; the "
+                             "failing run is itself the alert")
+    parser.add_argument("--stale-after-days", type=int, default=1, metavar="N",
+                        help="--check-stale: how many days of silence is too many "
+                             "(default 1, i.e. yesterday's digest is fine)")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -366,11 +434,15 @@ def main() -> int:
     store = SeenStore(STATE_PATH)
     first_run = store.was_empty
 
+    if args.check_stale:
+        return _check_stale(store, now, args.stale_after_days)
+
     # Scheduled runs only send when a digest is due and hasn't gone out yet.
     scheduled = not (args.dry_run or args.force or args.verify_links
                      or args.catchup or args.migrate_keys or args.audit_filter
                      or args.audit_classifier)
     slot = window_slot(config, now)
+    late = False
     if scheduled:
         slot = due_slot(config, now, store)
         if slot is None:
@@ -380,7 +452,15 @@ def main() -> int:
                 store.last_am_sent or "never", store.last_pm_sent or "never",
             )
             return 0
-        log.info("Digest due: %s slot", slot)
+        late = window_slot(config, now) is None
+        if late:
+            log.warning(
+                "No trigger reached the %s window today - sending it LATE at "
+                "local %s. Check that the external cron is still firing.",
+                slot, now.strftime("%H:%M %Z"),
+            )
+        else:
+            log.info("Digest due: %s slot", slot)
 
     session = make_session()
 
@@ -488,8 +568,11 @@ def main() -> int:
                                html_body, text_body, [])]
         log.info("First run: baselining %d postings instead of sending them all", len(unique))
     else:
+        # A slot delivered outside its window says so, so an email arriving at
+        # an odd hour is self-explanatory rather than alarming.
+        period = f"{slot} (late)" if late else slot
         messages = _digest_messages(new_jobs, failures, label,
-                                    now.strftime("%b %-d"), slot)
+                                    now.strftime("%b %-d"), period)
 
     if not (smtp_user and smtp_password and recipient):
         log.error("Missing GMAIL_USER / GMAIL_APP_PASSWORD / RECIPIENT - cannot send.")
