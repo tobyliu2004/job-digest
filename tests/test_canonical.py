@@ -221,6 +221,28 @@ class TestIdentityKeyFields:
     def test_season_token(self, text, expected):
         assert season_token(text) == expected
 
+    @pytest.mark.parametrize("text,expected", [
+        # A posting open for several seasons must be keyed to a season/year
+        # pair it ACTUALLY offers. Taking the first year in the string paired
+        # summer with 2026 here -- a term this job does not have.
+        ("Fall 2026, Spring 2027, Summer 2027", "su2027"),
+        ("Winter 2027, Spring 2028, Summer 2028", "su2028"),
+        ("Winter 2027, Summer 2026, Fall 2026", "su2026"),
+        ("Winter 2026, Spring 2027, Summer 2027, Fall 2027", "su2027"),
+        # No summer at all: falls to the next season in priority order.
+        ("Winter 2026, Spring 2027", "wi2026"),
+        # Source order must not change the key, or the same job keys two ways
+        # from two sources and is emailed twice.
+        ("Summer 2027, Fall 2026", "su2027"),
+    ])
+    def test_multi_season_pairs_the_season_with_its_own_year(self, text, expected):
+        assert season_token(text) == expected
+
+    def test_a_year_before_the_season_still_counts(self):
+        """'2027 Summer Intern' has no year after the season word."""
+        assert season_token("2027 Summer Intern") == "su2027"
+        assert season_token("Class of 2027 - Fall Co-op") == "fa2027"
+
     @pytest.mark.parametrize("title,expected", [
         ("Software Engineer Intern", "intern"),
         ("Software Engineer Co-op", "intern"),

@@ -335,16 +335,36 @@ NEW_GRAD_RE = re.compile(
 
 
 def season_token(*texts: str) -> str:
-    """'Summer 2027' -> 'su2027'. Takes the first text that yields a season."""
+    """'Summer 2027' -> 'su2027'. Takes the first text that yields a season.
+
+    The year is read from AFTER the season word, not from the start of the
+    string. Sources list multi-season postings as "Fall 2026, Spring 2027,
+    Summer 2027", and taking the first year in the text paired that string's
+    chosen season (summer, by _SEASONS order) with 2026 -- giving `su2026`,
+    a season/year combination the posting does not offer at all. Palantir's
+    "Winter 2027, Spring 2028, Summer 2028" became `su2027` the same way.
+    83 of 2,265 scraped postings were mis-keyed like this on 2026-08-28.
+
+    A wrong season in the identity key is the dangerous kind of wrong: it can
+    collide with a genuinely different posting for that season and suppress it
+    forever, and it shifts if a source ever reorders its season list, which
+    re-sends a job already applied to. Anchoring the year to its own season
+    word also makes the key stable across sources that list the same seasons
+    in a different order.
+
+    The whole-text fallback is kept for "2027 Summer Intern", where the year
+    legitimately precedes the season.
+    """
     for text in texts:
         if not text:
             continue
         low = text.lower()
-        name = next((abbr for word, abbr in _SEASONS if word in low), "")
-        if not name:
-            continue
-        year = _YEAR_RE.search(text)
-        return f"{name}{year.group(1)}" if year else name
+        for word, abbr in _SEASONS:
+            at = low.find(word)
+            if at < 0:
+                continue
+            year = _YEAR_RE.search(text, at) or _YEAR_RE.search(text)
+            return f"{abbr}{year.group(1)}" if year else abbr
     return ""
 
 
