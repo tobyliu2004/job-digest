@@ -223,3 +223,42 @@ def _drop_ambiguous_keys(clusters: list[Cluster]) -> None:
 def keys_by_job(clusters: list[Cluster]) -> dict[int, set[str]]:
     """id(representative job) -> the full key union to store for it."""
     return {id(c.job): c.keys for c in clusters}
+
+
+def suppress_linkedin_repeats(new: list[Cluster], every: list[Cluster],
+                              seen_keys) -> tuple[list[Cluster], int]:
+    """Drop LinkedIn-only postings that repeat a direct-link one.
+
+    The identity key includes location and season, and LinkedIn writes both
+    differently -- "San Francisco, CA" where Simplify says "SF", and usually no
+    season at all. So a role Simplify delivered on Monday can come back through
+    LinkedIn on Wednesday with a key nothing matches, and be emailed again as a
+    sign-in-walled link.
+
+    A LinkedIn-only cluster is therefore also checked on company + role alone,
+    against (a) every direct-source posting in this scrape and (b) every
+    posting ever sent, read from the stored `id:` keys. Only LinkedIn-only
+    clusters are ever dropped here; a direct-link posting is never touched, so
+    the season-blind collisions that key would cause elsewhere cannot hide a
+    real application link.
+
+    The dropped clusters are not stored: re-judging them is free, and LinkedIn
+    only shows the last 24 hours anyway.
+    """
+    known = {canonical.company_title_of_identity(k) for k in seen_keys}
+    for group in every:
+        for member in group.members:
+            if member.source != "LinkedIn":
+                known.add(canonical.company_title_key(member.company, member.title))
+    known.discard("")
+
+    kept, dropped = [], 0
+    for group in new:
+        linkedin_only = all(m.source == "LinkedIn" for m in group.members)
+        key = canonical.company_title_key(group.job.company, group.job.title)
+        if linkedin_only and key in known:
+            dropped += 1
+            log.debug("LinkedIn repeat suppressed: %s - %s", group.job.company, group.job.title)
+            continue
+        kept.append(group)
+    return kept, dropped

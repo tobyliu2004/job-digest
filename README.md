@@ -203,17 +203,28 @@ each have their own `enabled:` flag.
 
 ### Filtering out junk
 
-Two independent stages, deliberately kept apart:
+Three independent stages, deliberately kept apart:
 
 - `intern_only` asks **is this an internship?** "Tax Intern" passes.
-- `relevance:` asks **is this a software job?** That is where "Tax Intern" goes.
+- `relevance:` asks **is this a SWE role?** That is where "Tax Intern" and
+  "Data Scientist Intern" go.
+- `config/employers.yaml` asks **is this employer worth it?** The bar is "at
+  least as good a resume line as the Capital One SWE internship already in
+  hand". Unlisted companies are dropped silently and never mentioned in the
+  email.
 
 The `relevance:` rules run in a fixed order — `block_*` (not a job posting at
-all) → `restrict_titles` (unpaid, or reserved for one school) → `maybe_titles`
+all) → `require_titles` (the title must name a SWE role; "SWE Intern, ML
+Infra" passes, "Machine Learning Engineer Intern" does not) →
+`restrict_titles` (unpaid, or reserved for one school) → `maybe_titles`
 (off-domain), with `allow_titles` able to rescue only the last of those.
-Anything filtered as borderline is **demoted to a "Maybe" section at the bottom
-of the email, not deleted**, and tagged with the rule that caught it — so a rule
-that is too aggressive is visible rather than silently costing you a job.
+`mode: drop` is set, so there is no "Maybe" section: the digest is meant to be
+short. Set `mode: maybe` and remove `require_titles` to go back to every
+software-ish role, with borderline ones demoted instead of dropped.
+
+Nothing a filter drops is recorded as seen, so adding a company to
+`employers.yaml` (or loosening a rule) brings its currently-open postings back
+on the next run.
 
 Before changing a rule, see exactly what it would do:
 
@@ -223,7 +234,9 @@ python -m src.main --audit-filter --from tests/fixtures/live_jobs.json   # offli
 ```
 
 The `SAVED` section of that report lists every posting `allow_titles` rescued —
-the best place to spot an over-broad rule.
+the best place to spot an over-broad rule. The `UNLISTED` section ranks the
+companies `employers.yaml` dropped that had a SWE posting — skim it now and then
+for one worth adding.
 
 ### Deduplication keys
 

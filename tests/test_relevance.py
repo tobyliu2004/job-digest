@@ -20,11 +20,32 @@ def job(title, company="Acme", url="https://job-boards.greenhouse.io/acme/jobs/1
     return Job(company=company, title=title, apply_url=url, source="repo")
 
 
+def _shipped_config() -> dict:
+    with open(CONFIG_PATH) as fh:
+        return yaml.safe_load(fh)["relevance"]
+
+
 @pytest.fixture(scope="module")
 def judge():
-    """The REAL shipped rules, not a test-only copy."""
-    with open(CONFIG_PATH) as fh:
-        return relevance.load(yaml.safe_load(fh))
+    """The REAL shipped DOMAIN rules, with the SWE-only role gate lifted.
+
+    Since 2026-09-30 the shipped config also sets `require_titles` (SWE roles
+    only) and `mode: drop`. Those sit in front of the domain rules and would
+    decide nearly every case below on their own, so these tests would stop
+    exercising the rules they exist to guard. The domain rules still run in
+    production -- they are what drops "Software Engineer Intern (Unpaid)" and
+    school-restricted co-ops -- so they are tested here on their own, in the
+    mode that makes each verdict visible. `shipped` below tests the whole.
+    """
+    cfg = dict(_shipped_config(), mode="maybe")
+    cfg.pop("require_titles", None)
+    return relevance.Relevance(cfg)
+
+
+@pytest.fixture(scope="module")
+def shipped():
+    """The shipped rules exactly as the digest runs them."""
+    return relevance.Relevance(_shipped_config())
 
 
 # Real postings that must survive. Several would be lost by an obvious
@@ -392,3 +413,88 @@ class TestAgainstTheLiveCorpus:
             low = j.title.lower()
             if "software engineer intern" in low and "skillbridge" not in low:
                 assert judge.judge(j).action != relevance.DROP, j.title
+
+
+class TestSweOnly:
+    """The role gate: only software-engineering internships reach the email.
+
+    SWE wording wins -- a SWE title with an ML or data team suffix is still a
+    SWE job -- and a title with no SWE wording is a different job, however
+    technical.
+    """
+
+    @pytest.mark.parametrize("title", [
+        "Software Engineer Intern",
+        "Software Engineer Intern, ML Infra",
+        "Machine Learning Software Engineer Intern",           # Rippling
+        "Software Development Engineer Intern",                # Amazon
+        "SDE Intern",
+        "SWE Intern - Summer 2027",
+        "Software Developer Intern - New York - Summer 2027",  # D. E. Shaw
+        "Quantitative Developer Intern",                       # Tower, Point72
+        "Forward Deployed Software Engineer Intern",           # Palantir
+        "Forward Deployed Engineer Intern",
+        "Infrastructure Intern",                               # Etched
+        "Platform Engineer Intern",                            # DRW, Akuna
+        "Frontend Engineer Intern - Ads Interface",            # TikTok
+        "Full Stack Engineering Intern",
+        "Production Engineer Intern",                          # Meta
+        "iOS Engineer Intern",
+        "Engineering Summer Analyst",                          # Goldman
+        "Technology Summer Analyst",
+        "Global Technology Summer Analyst",
+        "Technology Intern",                                   # Marshall Wace
+        "Gameplay Programmer Intern",                          # Epic Games
+    ])
+    def test_swe_roles_are_kept(self, title, shipped):
+        verdict = shipped.judge(job(title))
+        assert verdict.action == relevance.KEEP, (
+            f"{title!r} was {verdict.action} by {verdict.rule} {verdict.pattern!r}")
+
+    @pytest.mark.parametrize("title", [
+        "Machine Learning Engineer Intern",
+        "Machine Learning Research Intern - Summer 2027",      # IMC
+        "Data Scientist Intern",
+        "Data Engineering Intern",
+        "Data Engineer Intern",
+        "Quantitative Researcher Intern",
+        "Quantitative Trader Intern",
+        "Research Scientist Intern, Trust and Safety",
+        "Research Engineer Intern - Agentic Systems & AI Infrastructure",  # TikTok
+        "AI Engineer Intern",
+        "Hardware Engineer Intern",
+        "FPGA Engineer Intern",
+        "Engineering Intern, Embedded Hardware",               # Rivian/VW
+        "Digital Technology Intern",                           # GE Vernova
+        "Technology Risk Analyst Intern",
+        "Product Management Intern",
+        "Tax Technology Intern - Summer 2027",
+    ])
+    def test_non_swe_roles_are_dropped(self, title, shipped):
+        assert shipped.judge(job(title)).action == relevance.DROP, title
+
+    def test_the_gate_reports_itself(self, shipped):
+        verdict = shipped.judge(job("Data Scientist Intern"))
+        assert verdict.rule == "require_titles"
+
+    def test_the_domain_rules_still_apply_behind_it(self, shipped):
+        """A SWE title can still be unpaid or school-restricted."""
+        for title in ("Software Engineer Intern (Unpaid)",
+                      "Software Engineer Co-op with Drexel University"):
+            verdict = shipped.judge(job(title))
+            assert verdict.action == relevance.DROP
+            assert verdict.rule == "restrict_titles"
+
+    def test_the_email_has_no_maybe_section(self, shipped):
+        assert shipped.mode == "drop"
+
+    def test_no_software_engineer_intern_in_the_corpus_is_dropped(self, shipped, corpus_jobs):
+        for j in corpus_jobs:
+            low = j.title.lower()
+            if ("software engineer intern" in low and "skillbridge" not in low
+                    and "unpaid" not in low):
+                assert shipped.judge(j).action == relevance.KEEP, j.title
+
+    def test_without_the_key_every_title_passes_the_gate(self):
+        judge = relevance.Relevance({"enabled": True, "mode": "drop"})
+        assert judge.judge(job("Data Scientist Intern")).action == relevance.KEEP

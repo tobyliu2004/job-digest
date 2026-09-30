@@ -87,11 +87,15 @@ intern_only: true
 # Rules are evaluated in this order, and the first match wins:
 #
 #   1. block_*          -> DROP (never stored, so loosening a rule brings it back)
-#   2. restrict_titles  -> "Maybe" section; the allowlist CANNOT rescue these
-#   3. maybe_titles     -> "Maybe" section, unless allow_titles rescues it
-#   4. otherwise        -> KEEP
+#   2. require_titles   -> DROP unless the title names a SWE role
+#   3. restrict_titles  -> "Maybe" section; the allowlist CANNOT rescue these
+#   4. maybe_titles     -> "Maybe" section, unless allow_titles rescues it
+#   5. otherwise        -> KEEP
 #
-# Only step 3 consults allow_titles, because only step 3 is a guess about
+# mode is now `drop`, so steps 3-4 drop too and the email has no Maybe section.
+# Which COMPANIES get through is a separate list: config/employers.yaml.
+#
+# Only step 4 consults allow_titles, because only step 3 is a guess about
 # subject matter. A pure blocklist deletes real jobs ("software quality
 # engineer"); a pure tech allowlist deletes different real jobs
 # ("Infrastructure Intern", "Video Algorithms Intern"). Letting the allowlist
@@ -111,10 +115,42 @@ intern_only: true
 relevance:
   enabled: true
 
-  # maybe = demote borderline postings to their own section (recommended)
+  # maybe = demote borderline postings to their own section
   # drop  = hard-drop them instead
   # off   = keep everything
-  mode: maybe
+  #
+  # drop since 2026-09-30: with a Capital One SWE offer in hand, the digest is
+  # meant to be short -- only SWE internships at least that good -- so a
+  # "review these" section is noise by definition.
+  mode: drop
+
+  # The ROLE gate. A title must match one of these or it is dropped outright,
+  # whatever else it says. SWE wording wins: "Software Engineer Intern, ML
+  # Infra" passes on "software"; "Machine Learning Engineer Intern", "Data
+  # Scientist Intern" and "Quantitative Researcher Intern" match nothing here
+  # and are dropped. Remove this key to go back to every software-ish role.
+  #
+  # Deliberately absent: data, ml/ai, quant, research, security, hardware,
+  # firmware, bare "engineer"/"systems". Each names a real job -- just not the
+  # one being hunted.
+  require_titles:
+    - '\b(software|swe|sde|sdet|developer|programmer)\b'
+    - '\b(back[- ]?end|front[- ]?end|full[- ]?stack)\b'
+    # Infrastructure only as the role itself ("Infrastructure Intern"), not as
+    # a team suffix: "Research Engineer Intern - AI Infrastructure" and "Data
+    # Lake Infrastructure ... Research Engineer" are research/data roles.
+    - '\binfrastructure\s+(engineer(ing)?\s+)?(intern|co-?op)'
+    - '\b(platform engineer(ing)?|distributed systems?)\b'
+    - '\b(mobile|ios|android)\s+(engineer|engineering|development)\b'
+    - '\b(site reliability|sre|production engineer(ing)?)\b'
+    - '\bforward[- ]deployed\b'
+    # Banks and trading firms title their SWE programmes this way:
+    # Goldman "Engineering Summer Analyst", "Technology Summer Analyst".
+    # Anchored to the START of the title: unanchored, it passed "Data
+    # Engineering Intern" and "Digital Technology Intern". Adjacent words
+    # only, so "Technology Risk Analyst" does not match either. "Engineering"
+    # only with "analyst": a bare "Engineering Intern" can be any discipline.
+    - '^\W*(20\d\d\s+)?(summer\s+)?(global\s+)?(technology\s+(summer\s+)?(analyst|intern(ship)?)|engineering\s+(summer\s+)?analyst)\b'
 
   # Vocabulary that marks a posting as SOFTWARE work. One hit here rescues a
   # title outright from maybe_titles below, so every entry must be a word that

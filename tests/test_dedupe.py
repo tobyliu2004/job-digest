@@ -274,3 +274,72 @@ def test_a_job_missing_identity_still_dedupes_on_url(field):
     clusters, collapsed, _ = dedupe.cluster([one(a, b)])
     assert len(clusters) == 1
     assert collapsed == 1
+
+
+class TestLinkedInRepeats:
+    """A LinkedIn row repeating a direct-link posting is not sent again.
+
+    LinkedIn writes locations differently and rarely gives a season, so its
+    identity key misses the direct copy. The looser company + role check must
+    catch it -- and must never touch a direct-link posting, where that
+    season-blind match would hide real application links.
+    """
+
+    SIMPLIFY = dict(company="Stripe", title="Software Engineer Intern - Summer 2027",
+                    url="https://stripe.com/jobs/listing/swe-intern/7001",
+                    source="SimplifyJobs", location="SF", season="Summer 2027")
+    LINKEDIN = dict(company="Stripe, Inc.", title="Software Engineer Intern",
+                    url="https://www.linkedin.com/jobs/view/4400000001",
+                    source="LinkedIn", location="San Francisco, CA", season="",
+                    indirect=True)
+
+    def _sent_keys(self, j):
+        clusters, _, _ = dedupe.cluster([one(j)])
+        return set(clusters[0].keys)
+
+    def test_the_identity_key_alone_misses_it(self):
+        """The bug, pinned: without the new check these never meet."""
+        clusters, _, _ = dedupe.cluster([one(job(**self.SIMPLIFY)),
+                                         one(job(**self.LINKEDIN), name="LinkedIn")])
+        assert len(clusters) == 2
+
+    def test_a_repeat_of_something_already_sent_is_suppressed(self):
+        seen = self._sent_keys(job(**self.SIMPLIFY))
+        clusters, _, _ = dedupe.cluster([one(job(**self.LINKEDIN), name="LinkedIn")])
+        new = [c for c in clusters if not (c.keys & seen)]
+        assert len(new) == 1                       # the old check lets it through
+
+        kept, dropped = dedupe.suppress_linkedin_repeats(new, clusters, seen)
+        assert kept == [] and dropped == 1
+
+    def test_a_repeat_within_the_same_scrape_is_suppressed(self):
+        clusters, _, _ = dedupe.cluster([one(job(**self.SIMPLIFY)),
+                                         one(job(**self.LINKEDIN), name="LinkedIn")])
+        kept, dropped = dedupe.suppress_linkedin_repeats(clusters, clusters, set())
+        assert dropped == 1
+        assert [c.job.source for c in kept] == ["SimplifyJobs"]
+
+    def test_a_direct_posting_is_never_suppressed(self):
+        """The Winter posting shares company + role with a sent Summer one.
+        For a direct link that match is not enough: it is a different job."""
+        seen = self._sent_keys(job(**self.SIMPLIFY))
+        winter = job(**dict(self.SIMPLIFY, title="Software Engineer Intern - Winter 2027",
+                            season="Winter 2027",
+                            url="https://stripe.com/jobs/listing/swe-intern/7002"))
+        clusters, _, _ = dedupe.cluster([one(winter)])
+        kept, dropped = dedupe.suppress_linkedin_repeats(clusters, clusters, seen)
+        assert dropped == 0 and len(kept) == 1
+
+    def test_a_different_linkedin_role_is_kept(self):
+        seen = self._sent_keys(job(**self.SIMPLIFY))
+        other = job(**dict(self.LINKEDIN, title="Frontend Engineer Intern"))
+        clusters, _, _ = dedupe.cluster([one(other, name="LinkedIn")])
+        kept, dropped = dedupe.suppress_linkedin_repeats(clusters, clusters, seen)
+        assert dropped == 0 and len(kept) == 1
+
+    def test_legacy_three_field_keys_are_read_too(self):
+        """Pre-2026-08-13 identity keys lack level and season but still open
+        with company|title."""
+        assert canonical.company_title_of_identity("id:aapc|junior developer|salt lake city ut") \
+            == "aapc|junior developer"
+        assert canonical.company_title_of_identity("url:stripe.com/jobs/1") == ""

@@ -1,0 +1,208 @@
+# ============================================================================
+# Employers worth emailing about
+#
+# The bar: a Summer 2027 SWE internship here must be at least as strong a
+# resume line as the Capital One SWE internship already in hand. Capital One
+# itself is deliberately absent -- another posting there is not news.
+#
+# A posting from a company NOT on this list is dropped before the email is
+# built, silently. Dropped postings are never recorded as seen, so adding a
+# company here brings back its currently-open postings on the very next run.
+#
+# To see which unlisted companies had software postings (terminal only, never
+# emailed):
+#     python -m src.main --audit-filter
+#
+# FORMAT: a plain name, or `Name: [alias, alias]` for the other spellings the
+# sources use. Matching is EXACT after normalisation (case, punctuation,
+# spacing, "Inc"/"LLC"/"Technologies"/"Group"/... and any "(...)" suffix are
+# ignored), never a substring -- so "Apple" does not match "Applied Materials".
+# Two entries that normalise to the same name fail loudly at load.
+#
+# The groups are for reading only; every group is treated the same.
+# ============================================================================
+
+employers:
+  big_tech:
+    - Google: [Alphabet, Google DeepMind, DeepMind, YouTube, Waymo]
+    - Meta: [Facebook, Meta Platforms]
+    - Apple
+    - Amazon: [Amazon Web Services, AWS, Amazon.com, Amazon Development Center]
+    - Microsoft: [Microsoft AI, LinkedIn, GitHub]
+    - Netflix
+    - NVIDIA
+
+  ai_labs:
+    - OpenAI
+    - Anthropic
+    - xAI
+    - Mistral AI
+    - Cohere
+    - Scale AI
+    - Perplexity: [Perplexity AI]
+    - Character.AI
+    - Hugging Face
+    - Anysphere: [Cursor]
+    - Cognition: [Cognition AI]
+    - Etched
+    - Modal
+    - Glean
+    - Sierra
+    - Harvey
+
+  quant_and_trading:
+    - Jane Street
+    - Citadel
+    - Citadel Securities
+    - Hudson River Trading: [HRT]
+    - Two Sigma
+    - Jump Trading
+    - D. E. Shaw: [D. E. Shaw & Co., DE Shaw, D.E. Shaw Group]
+    - Optiver
+    - IMC Trading: [IMC]
+    - Susquehanna: [Susquehanna International Group, SIG, Susquehanna Investment Group]
+    - Five Rings: [Five Rings Capital]
+    - Tower Research Capital: [Tower Research]
+    - DRW
+    - Akuna Capital: [Akuna]
+    - Virtu Financial: [Virtu]
+    - Old Mission Capital: [Old Mission]
+    - Radix Trading: [Radix]
+    - XTX Markets
+    - Headlands Technologies: [Headlands]
+    - Millennium: [Millennium Management]
+    - Point72: [Cubist Systematic Strategies]
+    - Renaissance Technologies
+    - PDT Partners
+    - Arrowstreet Capital
+    - AQR Capital Management: [AQR]
+    - Bridgewater Associates: [Bridgewater]
+    - Squarepoint Capital: [Squarepoint]
+    - Chicago Trading Company
+    - Belvedere Trading
+    - Flow Traders
+    - Maven Securities
+    - Schonfeld: [Schonfeld Strategic Advisors]
+    - Balyasny Asset Management: [Balyasny]
+    - Marshall Wace
+    - Voloridge Investment Management: [Voloridge]
+    - Quantbot Technologies: [Quantbot]
+    - Walleye Capital
+    - Hyannis Port Research: [HPR]
+    - Aquatic Capital Management: [Aquatic, Aquatic Capital]
+    - PEAK6: [PEAK6 Investments]
+    - Wolverine Trading
+    - Da Vinci Trading: [Da Vinci]
+    - Bloomberg: [Bloomberg LP]
+
+  elite_tech:
+    - Stripe
+    - Databricks
+    - Palantir
+    - Figma
+    - Ramp
+    - Notion
+    - Snowflake
+    - Airbnb
+    - Uber
+    - Lyft
+    - DoorDash
+    - Instacart: [Maplebear]
+    - Pinterest
+    - Snap: [Snapchat]
+    - Reddit
+    - Discord
+    - Robinhood
+    - Coinbase
+    - Plaid
+    - Brex
+    - Rippling
+    - Datadog
+    - Cloudflare
+    - MongoDB
+    - Confluent
+    - Atlassian
+    - Shopify
+    - Block: [Square, Cash App]
+    - Roblox
+    - Epic Games
+    - Riot Games
+    - Electronic Arts: [EA]
+    - Valve
+    - Duolingo
+    - Dropbox
+    - Airtable
+    - Asana
+    - Canva
+    - Vercel
+    - Linear
+    - Retool
+    - Anduril: [Anduril Industries]
+    - SpaceX
+    - Tesla
+    - Nuro
+    - Aurora: [Aurora Innovation]
+    - Zoox
+    - Skydio
+    - Neuralink
+    - Samsara
+    - Verkada
+    - Applied Intuition
+    - Shield AI
+    - Faire
+    - Chime
+    - Affirm
+    - Twilio
+    - Palo Alto Networks
+    - CrowdStrike
+    - Zscaler
+    - ServiceNow
+    - Workday
+    - Adobe
+    - Intuit
+    - Spotify
+    - Grammarly
+    - Wealthfront
+    - The Trade Desk
+    - Sentry
+    - Postman
+    - Zipline
+    - Saronic: [Saronic Technologies]
+    - Replit
+    - Supabase
+    - Benchling
+    - Flexport
+    - Gusto
+    - Mercury
+    - Qualcomm
+    - AMD: [Advanced Micro Devices]
+    - Tenstorrent
+
+  peers:
+    # Roughly Capital One's level: large, well-known engineering orgs whose
+    # SWE internships read about the same on a resume. Kept because "as good
+    # as" was the bar, not "strictly better".
+    - Salesforce
+    - Oracle
+    - IBM
+    - Cisco
+    - Intel
+    - TikTok
+    - ByteDance
+    - PayPal
+    - Visa
+    - Mastercard
+    - American Express: [Amex]
+    - eBay
+    - Expedia: [Expedia Group]
+    - Zillow
+    - Wayfair
+    - Rivian: [Rivian and Volkswagen Group Technologies]
+    - Axon
+    - Uber Freight
+    - Walmart: [Walmart Global Tech]
+    - Target
+    - Goldman Sachs
+    - Morgan Stanley
+    - JPMorgan Chase: [JPMorganChase, JP Morgan Chase, J.P. Morgan, JPMorgan, JP Morgan, JPMC]
+    - BlackRock

@@ -394,6 +394,33 @@ def identity_key(company: str, title: str, location: str = "",
     return f"id:{c}|{t}|{loc}|{level or level_token(title)}|{season_token(season, title)}"
 
 
+def company_title_key(company: str, title: str) -> str:
+    """Company and role only -- no location, season or level.
+
+    FOR SUPPRESSING LINKEDIN ROWS ONLY. Never store it, and never let it hide a
+    direct-link posting: it is exactly as season-blind as the legacy keys whose
+    collisions hid 57 real postings (see config/sources.yaml, dedup). It is safe
+    for LinkedIn because the thing it can wrongly hide is a sign-in-walled copy
+    of a role a direct source already delivered.
+    """
+    c = normalize_company(company)
+    t = normalize_title(title)
+    return f"{c}|{t}" if c and t else ""
+
+
+def company_title_of_identity(key: str) -> str:
+    """The company_title_key embedded in a stored `id:` key, or ''.
+
+    Every identity_key -- current or legacy -- opens `id:{company}|{title}|`,
+    built by the same normalisers, so the seen-state already records the
+    company and role of everything ever sent. No migration needed.
+    """
+    if not key.startswith("id:"):
+        return ""
+    parts = key[3:].split("|")
+    return f"{parts[0]}|{parts[1]}" if len(parts) >= 2 and parts[0] and parts[1] else ""
+
+
 def simplify_uuid_key(job) -> str:
     """Tier 0: Simplify's own posting UUID, when the job carries one.
 

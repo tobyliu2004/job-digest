@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from src import canonical, dedupe, relevance
+from src import canonical, dedupe, employers, relevance
 from src.main import (CONFIG_PATH, _digest_messages, filter_results,
                       is_internship)
 from src.models import Job, SourceResult
@@ -23,6 +23,19 @@ from src.models import Job, SourceResult
 def config():
     with open(CONFIG_PATH) as fh:
         return yaml.safe_load(fh)
+
+
+@pytest.fixture(scope="module")
+def maybe_config(config):
+    """The shipped config with the Maybe section switched back on.
+
+    The shipped digest runs `mode: drop` with an SWE-only role gate, so it
+    produces no Maybe postings at all. The Maybe mechanism is still code that
+    `mode: maybe` would use, and these tests keep it honest.
+    """
+    rel = dict(config["relevance"], mode="maybe")
+    rel.pop("require_titles", None)
+    return dict(config, relevance=rel)
 
 
 def run_pipeline(results, config, store=None):
@@ -40,6 +53,11 @@ def run_pipeline(results, config, store=None):
         dropped_intern = [j for r in results for j in r.jobs
                           if id(j) in before - after]
 
+    before = {id(j) for r in kept for j in r.jobs}
+    kept, _ = filter_results(kept, employers.load().listed)
+    after = {id(j) for r in kept for j in r.jobs}
+    dropped_employer = [j for r in results for j in r.jobs if id(j) in before - after]
+
     clusters, collapsed, unusable = dedupe.cluster(kept)
     new = clusters
     already_seen = []
@@ -51,6 +69,7 @@ def run_pipeline(results, config, store=None):
         "clusters": clusters, "new": new, "already_seen": already_seen,
         "collapsed": collapsed, "unusable": unusable,
         "dropped_relevance": dropped_relevance, "dropped_intern": dropped_intern,
+        "dropped_employer": dropped_employer,
     }
 
 
@@ -63,18 +82,33 @@ class TestNothingVanishes:
         emitted = len(out["clusters"])
         merged = out["collapsed"]
         explained = (emitted + merged + out["unusable"]
-                     + len(out["dropped_relevance"]) + len(out["dropped_intern"]))
+                     + len(out["dropped_relevance"]) + len(out["dropped_intern"])
+                     + len(out["dropped_employer"]))
         assert explained == len(corpus_jobs), (
             f"{len(corpus_jobs) - explained} job(s) vanished unexplained "
             f"(emitted={emitted} merged={merged} unusable={out['unusable']} "
             f"relevance={len(out['dropped_relevance'])} "
-            f"intern={len(out['dropped_intern'])})"
+            f"intern={len(out['dropped_intern'])} "
+            f"employer={len(out['dropped_employer'])})"
         )
 
-    def test_most_of_the_corpus_survives(self, fresh_results, corpus_jobs, config):
-        """A filter bug that eats the digest shows up here."""
+    def test_the_digest_is_not_eaten(self, fresh_results, corpus_jobs, config):
+        """A filter bug that eats the digest shows up here.
+
+        The floor is low on purpose -- since 2026-09-30 the digest is SWE
+        internships at listed employers only, which is ~240 postings of the
+        1,436 in the corpus -- but it is far above zero, which is what a
+        broken pattern or an unloadable employer list would produce.
+        """
         out = run_pipeline(fresh_results, config)
-        assert len(out["clusters"]) >= 0.4 * len(corpus_jobs)
+        assert len(out["clusters"]) >= 0.10 * len(corpus_jobs)
+
+    def test_every_emitted_job_is_at_a_listed_employer(self, fresh_results, config):
+        listed = employers.load()
+        out = run_pipeline(fresh_results, config)
+        for group in out["clusters"]:
+            assert listed.listed(group.job), group.job.company
+            assert "capital one" not in group.job.company.lower()
 
     def test_every_emitted_job_has_an_apply_url(self, fresh_results, config):
         out = run_pipeline(fresh_results, config)
@@ -152,7 +186,7 @@ class TestNoDuplicatesAcrossEmails:
 
     def test_a_failed_source_does_not_mark_its_jobs_seen(self, config, empty_store):
         """Jobs from a source that errored must reappear next run."""
-        good = Job("Acme", "SWE Intern", "https://job-boards.greenhouse.io/a/jobs/1", "repo")
+        good = Job("Stripe", "SWE Intern", "https://job-boards.greenhouse.io/a/jobs/1", "repo")
         results = [SourceResult("repo", [good]),
                    SourceResult("LinkedIn", [], ok=False, error="HTTP 429")]
         out = run_pipeline(results, config, store=empty_store)
@@ -160,13 +194,13 @@ class TestNoDuplicatesAcrossEmails:
             empty_store.add(sorted(group.keys))
 
         # LinkedIn recovers and returns the job it could not fetch before.
-        li = Job("Beta", "SWE Intern", "https://www.linkedin.com/jobs/view/4444729829",
+        li = Job("Figma", "SWE Intern", "https://www.linkedin.com/jobs/view/4444729829",
                  "LinkedIn", indirect=True)
         recovered = run_pipeline(
             [SourceResult("repo", [good]), SourceResult("LinkedIn", [li])],
             config, store=empty_store,
         )
-        assert [c.job.company for c in recovered["new"]] == ["Beta"]
+        assert [c.job.company for c in recovered["new"]] == ["Figma"]
 
 
 class TestFilterOrdering:
@@ -184,10 +218,10 @@ class TestFilterOrdering:
         emitted_urls = {c.job.apply_url for c in out["clusters"]}
         assert not (dropped_urls & emitted_urls)
 
-    def test_maybe_jobs_do_reach_the_email(self, fresh_results, config):
+    def test_maybe_jobs_do_reach_the_email(self, fresh_results, maybe_config):
         """Demoted, not deleted -- that is the entire point of the Maybe
         section."""
-        out = run_pipeline(fresh_results, config)
+        out = run_pipeline(fresh_results, maybe_config)
         maybes = [c for c in out["clusters"] if c.job.relevance == relevance.MAYBE]
         assert maybes, "expected some borderline postings in the corpus"
 
@@ -203,9 +237,20 @@ class TestStorageDiscipline:
         for job in out["dropped_relevance"]:
             assert not empty_store.has_any(canonical.keys_for(job)), job.title
 
-    def test_maybe_jobs_are_stored(self, fresh_results, config, empty_store):
+        # An employer drop can be another source's copy of a posting that WAS
+        # sent under its real name -- the corpus has Axon's greenhouse posting
+        # listed by one repo under "RenderATL". Sharing a key with a sent
+        # posting is then correct: it is the same job. Every other employer
+        # drop must stay unrecorded.
+        sent = set().union(*(g.keys for g in out["new"]))
+        for job in out["dropped_employer"]:
+            if set(canonical.keys_for(job)) & sent:
+                continue
+            assert not empty_store.has_any(canonical.keys_for(job)), job.title
+
+    def test_maybe_jobs_are_stored(self, fresh_results, maybe_config, empty_store):
         """They were shown to you, so they must not come back tomorrow."""
-        out = run_pipeline(fresh_results, config, store=empty_store)
+        out = run_pipeline(fresh_results, maybe_config, store=empty_store)
         for group in out["new"]:
             empty_store.add(sorted(group.keys))
 

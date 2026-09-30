@@ -23,7 +23,8 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import canonical, canonical_legacy, corpus, dedupe, email_render, migrate, relevance
+from . import (canonical, canonical_legacy, corpus, dedupe, email_render, employers,
+               migrate, relevance)
 from .http import make_session
 from .models import Job, SourceResult
 from .scrapers import github_md, linkedin, simplify, simplify_repo
@@ -502,11 +503,12 @@ def main() -> int:
 
     # Filters run per-source, BEFORE dedupe. See filter_results.
     judge = relevance.load(config)
+    employer_list = employers.load()
 
     # The audit judges RAW scraped jobs -- running it after the filters would
     # show an empty DROP list, because the drops already happened.
     if args.audit_filter:
-        return _run_audit(results, judge)
+        return _run_audit(results, judge, employer_list)
 
     if args.audit_classifier:
         return _run_classifier_audit(results, judge, args)
@@ -518,6 +520,12 @@ def main() -> int:
     if config.get("intern_only"):
         results, dropped = filter_results(results, is_internship)
         log.info("Intern-only: dropped %d non-internship roles", dropped)
+
+    # Only employers at least as good as the Capital One offer in hand. Runs
+    # with the other filters, before dedupe, for the reason filter_results
+    # gives; like them, what it drops is never stored.
+    results, dropped = filter_results(results, employer_list.listed)
+    log.info("Employers: dropped %d posting(s) from unlisted companies", dropped)
 
     clusters, collapsed, unusable = dedupe.cluster(results)
     unique = [c.job for c in clusters]
@@ -533,10 +541,11 @@ def main() -> int:
     # a member merged in transitively would otherwise go unrecorded and be
     # emailed again on every future run.
     keys_for_job = {id(c.job): sorted(c.keys) for c in clusters}
-    new_jobs = [
-        c.job for c in clusters
-        if not store.has_any(_seen_keys(c, legacy))
-    ]
+    new_clusters = [c for c in clusters if not store.has_any(_seen_keys(c, legacy))]
+    new_clusters, repeats = dedupe.suppress_linkedin_repeats(new_clusters, clusters, store.keys)
+    if repeats:
+        log.info("LinkedIn: suppressed %d repeat(s) of direct-link postings", repeats)
+    new_jobs = [c.job for c in new_clusters]
     log.info("New since last email: %d", len(new_jobs))
 
     if args.verify_links:
@@ -853,7 +862,7 @@ def _run_migration(results, failures, store, preview: bool) -> int:
     return 0
 
 
-def _run_audit(results, judge) -> int:
+def _run_audit(results, judge, employer_list=None) -> int:
     """--audit-filter: show exactly what the relevance rules do, and why.
 
     Run this before turning the filter on. The SAVED section is the important
@@ -889,12 +898,35 @@ def _run_audit(results, judge) -> int:
                 print(f"      {job.company[:34]:34} {job.title[:56]:56} [{job.source}]")
                 print(f"        {job.apply_url}")
 
+    if employer_list is not None:
+        _print_unlisted_employers(results, judge, employer_list)
+
     total = sum(counts.values())
     print(f"\nSUMMARY  {total} judged | keep {counts[relevance.KEEP]} | "
           f"maybe {counts[relevance.MAYBE]} | drop {counts[relevance.DROP]} | "
           f"saved-by-allowlist {rescued}")
     print("No email sent, no state written.")
     return 0
+
+
+def _print_unlisted_employers(results, judge, employer_list) -> None:
+    """Companies the employer list dropped that had a role the title rules keep.
+
+    Terminal only -- the email never mentions unlisted companies. This is the
+    list to skim now and then for a company worth adding to employers.yaml.
+    """
+    unlisted: dict[str, list[str]] = {}
+    for result in results:
+        for job in result.jobs:
+            if employer_list.listed(job) or judge.judge(job).action == relevance.DROP:
+                continue
+            unlisted.setdefault(job.company, []).append(job.title)
+    if not unlisted:
+        return
+    print("\nUNLISTED employers with a role that passed the title rules "
+          "(dropped; add to config/employers.yaml to receive them)")
+    for company, titles in sorted(unlisted.items(), key=lambda kv: (-len(kv[1]), kv[0].lower())):
+        print(f"      {len(titles):3}  {company[:34]:34} e.g. {titles[0][:56]}")
 
 
 def _run_classifier_audit(results, judge, args) -> int:

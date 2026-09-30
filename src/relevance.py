@@ -6,12 +6,22 @@ is a real internship and passes that filter, but it is not a software job.
 RULE ORDER (see judge() -- the first match wins)
 
     1. block_titles / block_companies / block_urls -> drop
-    2. restrict_titles                             -> demote to Maybe
-    3. maybe_titles, unless allow_titles rescues   -> demote to Maybe
-    4. otherwise                                   -> keep
+    2. require_titles, when set, matching nothing  -> drop
+    3. restrict_titles                             -> demote to Maybe
+    4. maybe_titles, unless allow_titles rescues   -> demote to Maybe
+    5. otherwise                                   -> keep
 
-Steps 1 and 2 are facts about the posting and the allowlist cannot touch them.
-Only step 3 is a guess about subject matter, so only step 3 consults it.
+Steps 1-3 are facts about the posting and the allowlist cannot touch them.
+Only step 4 is a guess about subject matter, so only step 4 consults it.
+
+WHY require_titles IS A SEPARATE, STRICTER LIST
+
+allow_titles answers "could this be a software job?" and is deliberately broad
+(data, ML, quant, security...). require_titles answers "is this the role I am
+hunting?" -- a software-engineering internship and nothing adjacent. Once a SWE
+offer was in hand (2026-09-30), ML/DS/quant-research titles stopped being worth
+an email, but the domain rules below are still what keeps "Software Engineer
+Intern (Unpaid)" and co-ops reserved for one school out.
 
 WHY STEP 3 NEEDS AN ALLOWLIST AT ALL
 
@@ -68,6 +78,7 @@ class Relevance:
         self.enabled: bool = bool(cfg.get("enabled", False))
         self.mode: str = cfg.get("mode", "maybe")
         self._allow = _compile(cfg, "allow_titles")
+        self._require = _compile(cfg, "require_titles")
         self._block_titles = _compile(cfg, "block_titles")
         self._block_companies = _compile(cfg, "block_companies")
         self._block_urls = _compile(cfg, "block_urls")
@@ -95,6 +106,11 @@ class Relevance:
         if blocked:
             rule, pattern = blocked
             return Verdict(DROP, rule, pattern)
+
+        # The role gate. A hard drop in every mode: a title with no software-
+        # engineering wording is not borderline, it is a different job.
+        if self._require and not _first(self._require, job.title):
+            return Verdict(DROP, "require_titles")
 
         # Restrictions are about eligibility, not subject matter, so the
         # allowlist has no bearing on them: "AI Engineer (Unpaid Internship)"
