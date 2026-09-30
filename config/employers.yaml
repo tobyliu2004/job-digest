@@ -49,6 +49,9 @@ employers:
     - Glean
     - Sierra
     - Harvey
+    - Together AI
+    - Mercor
+    - Exa
 
   quant_and_trading:
     - Jane Street
@@ -64,7 +67,7 @@ employers:
     - Five Rings: [Five Rings Capital]
     - Tower Research Capital: [Tower Research]
     - DRW
-    - Akuna Capital: [Akuna]
+    - Akuna Capital: [Akuna, Akuna Capital University]
     - Virtu Financial: [Virtu]
     - Old Mission Capital: [Old Mission]
     - Radix Trading: [Radix]
@@ -94,6 +97,8 @@ employers:
     - Wolverine Trading
     - Da Vinci Trading: [Da Vinci]
     - Bloomberg: [Bloomberg LP]
+    - The Voleon Group: [Voleon]
+    - Brevan Howard
 
   elite_tech:
     - Stripe
@@ -170,6 +175,9 @@ employers:
     - Saronic: [Saronic Technologies]
     - Replit
     - Supabase
+    - Rubrik
+    - Whatnot
+    - Superhuman
     - Benchling
     - Flexport
     - Gusto
@@ -187,7 +195,7 @@ employers:
     - IBM
     - Cisco
     - Intel
-    - TikTok
+    - TikTok: [TikTok USDS Joint Venture]
     - ByteDance
     - PayPal
     - Visa
