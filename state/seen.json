@@ -1,5 +1,5 @@
 {
- "count": 19674,
+ "count": 19678,
  "keys": {
   "ab:abridge:3f07a457-dc14-4238-bf4e-5c33b5c1f883": "2026-08-15T23:00:01.600558+00:00",
   "ab:abridge:6569d8f7-bd0b-4bb0-a3af-37f83e19ec5e": "2026-09-17T23:00:01.675540+00:00",
@@ -5532,6 +5532,7 @@
   "id:nvidia|software engineering dynamo|santa clara ca|intern|": "2026-08-06T15:23:40.037512+00:00",
   "id:nvidia|software engineering dynamo|santa clara ca|intern|fa2026": "2026-08-06T15:23:40.037512+00:00",
   "id:nvidia|software engineering|canada santa clara ca|intern|su2027": "2026-08-19T11:00:01.474343+00:00",
+  "id:nvidia|software engineer|santa clara ca|intern|su2027": "2026-10-05T11:00:01.543289+00:00",
   "id:nvidia|software quality assurance engineer new college|santa clara ca": "2026-07-24T19:18:38.028589+00:00",
   "id:nvidia|software r d engineer digital logic synthesis new college|santa clara ca 1": "2026-07-24T19:18:38.028667+00:00",
   "id:nvidia|software r d engineer vlsi physical design new college|a tin tx": "2026-07-24T19:18:38.028615+00:00",
@@ -11846,6 +11847,7 @@
   "sj:4c8571fd-a704-4542-babd-54c89d6aeff3": "2026-09-01T23:00:01.009524+00:00",
   "sj:4c8703e4-e538-4a55-ac8c-5d9b8e0eec12": "2026-08-24T23:00:01.161748+00:00",
   "sj:4c9dd806-b8fb-45f1-902c-57dd9eea449b": "2026-09-22T11:00:01.682912+00:00",
+  "sj:4cf30745-6f3b-4afc-b4a7-8c156b74804c": "2026-10-05T11:00:01.543289+00:00",
   "sj:4cfc6f1c-ae9e-447d-8980-a90e98153e86": "2026-09-30T11:00:01.404369+00:00",
   "sj:4d30f64b-9b67-4679-a968-1b62bf57c98e": "2026-09-08T23:00:01.740980+00:00",
   "sj:4d33923f-011e-4c9c-8e39-4a4f417686d7": "2026-09-14T23:00:06.984116+00:00",
@@ -16314,6 +16316,7 @@
   "url:simplify.jobs/jobs/click/4c8571fd-a704-4542-babd-54c89d6aeff3": "2026-09-01T23:00:01.009524+00:00",
   "url:simplify.jobs/jobs/click/4c8703e4-e538-4a55-ac8c-5d9b8e0eec12": "2026-08-24T23:00:01.161748+00:00",
   "url:simplify.jobs/jobs/click/4c9dd806-b8fb-45f1-902c-57dd9eea449b": "2026-09-22T11:00:01.682912+00:00",
+  "url:simplify.jobs/jobs/click/4cf30745-6f3b-4afc-b4a7-8c156b74804c": "2026-10-05T11:00:01.543289+00:00",
   "url:simplify.jobs/jobs/click/4cfc6f1c-ae9e-447d-8980-a90e98153e86": "2026-09-30T11:00:01.404369+00:00",
   "url:simplify.jobs/jobs/click/4d30f64b-9b67-4679-a968-1b62bf57c98e": "2026-09-08T23:00:01.740980+00:00",
   "url:simplify.jobs/jobs/click/4d33923f-011e-4c9c-8e39-4a4f417686d7": "2026-09-14T23:00:06.984116+00:00",
@@ -19128,6 +19131,7 @@
   "wd:nvidia:jr2025647": "2026-09-22T11:00:01.683611+00:00",
   "wd:nvidia:jr2026004": "2026-09-24T11:00:01.203210+00:00",
   "wd:nvidia:jr2026471": "2026-09-24T11:00:01.203186+00:00",
+  "wd:nvidia:jr2026958": "2026-10-05T11:00:01.543289+00:00",
   "wd:nwis:jr101733": "2026-07-24T19:18:38.027389+00:00",
   "wd:nxp:r10064583": "2026-09-07T11:00:01.847956+00:00",
   "wd:nxp:r10064586": "2026-09-07T11:00:01.847876+00:00",
@@ -19676,7 +19680,7 @@
   "wk:twgai:772CD136FF": "2026-09-01T23:00:02.827341+00:00",
   "wk:twgai:AC536E5EE2": "2026-09-01T23:00:02.827361+00:00"
  },
- "last_am_sent": "2026-10-04",
+ "last_am_sent": "2026-10-05",
  "last_pm_sent": "2026-10-04",
- "last_run": "2026-10-04T23:00:01.514497+00:00"
+ "last_run": "2026-10-05T11:00:01.560353+00:00"
 }
