@@ -1,5 +1,5 @@
 {
- "count": 19975,
+ "count": 19982,
  "keys": {
   "ab:abridge:3f07a457-dc14-4238-bf4e-5c33b5c1f883": "2026-08-15T23:00:01.600558+00:00",
   "ab:abridge:6569d8f7-bd0b-4bb0-a3af-37f83e19ec5e": "2026-09-17T23:00:01.675540+00:00",
@@ -210,6 +210,7 @@
   "ab:skydio:370da6a5-5ae6-48fe-8e08-9b1dcc63bf34": "2026-10-20T23:00:01.825166+00:00",
   "ab:skydio:79fdda46-4ff5-42c7-b208-55f2084cdb8c": "2026-10-14T23:00:00.770692+00:00",
   "ab:skydio:8994767e-fd53-4ca2-b0ef-fe0923c1e260": "2026-10-13T23:00:01.932827+00:00",
+  "ab:skydio:89bb6fee-3cd2-4e0b-a1c2-c73de8c1f9bd": "2026-10-22T23:00:01.180170+00:00",
   "ab:skydio:8a237302-3fe8-4403-b32b-7690f333ba52": "2026-10-20T23:00:01.825175+00:00",
   "ab:skydio:ae4a6f7d-a240-4fa2-8c8e-04cc906e4ef9": "2026-09-04T11:00:02.766772+00:00",
   "ab:skydio:f6320e9b-4eed-408d-8d37-d509fb0406ee": "2026-07-24T19:18:38.018379+00:00",
@@ -635,6 +636,7 @@
   "gh:jid:8174099": "2026-09-04T11:00:02.767203+00:00",
   "gh:jid:8174504": "2026-09-04T11:00:02.767214+00:00",
   "gh:jid:8174874": "2026-09-08T23:00:01.741282+00:00",
+  "gh:jid:8175873": "2026-10-22T23:00:01.180209+00:00",
   "gh:jid:8188474": "2026-09-14T23:00:03.599707+00:00",
   "gh:jid:8188578": "2026-09-09T23:00:01.328046+00:00",
   "gh:jid:8188637": "2026-09-14T23:00:03.600086+00:00",
@@ -2728,6 +2730,7 @@
   "id:coinbase|machine learning engineer|sf|intern|su2027": "2026-09-09T11:00:01.266565+00:00",
   "id:coinbase|people analytics|new york ny|intern|su2027": "2026-09-09T11:00:01.266495+00:00",
   "id:coinbase|people analytics|nyc|intern|su2027": "2026-09-09T11:00:01.266495+00:00",
+  "id:coinbase|software engineer|1|intern|": "2026-10-22T23:00:01.180209+00:00",
   "id:coinbase|software engineer|san francisco ca|intern|": "2026-09-09T11:00:01.267042+00:00",
   "id:coinbase|software engineer|sf|intern|su2027": "2026-09-09T11:00:01.266469+00:00",
   "id:colgate palmolive|software development|piscataway nj": "2026-07-24T19:18:38.019296+00:00",
@@ -5116,6 +5119,7 @@
   "id:microsoft|software engineer opportunities for university students atlanta|atlanta ga|intern|": "2026-09-26T23:00:01.093429+00:00",
   "id:microsoft|software engineer opportunity for university students|california md|intern|": "2026-09-24T23:00:01.350390+00:00",
   "id:microsoft|software engineer opportunity for university students|mountain view ca|intern|": "2026-09-24T23:00:01.350970+00:00",
+  "id:microsoft|software engineer security identity opportunities for university students cambridge|cambridge ma|intern|": "2026-10-22T23:00:01.180477+00:00",
   "id:microsoft|software engineer security identity opportunities for university students redmond|washington dc": "2026-08-05T15:23:40.293385+00:00",
   "id:microsoft|software engineer security identity|cambridge ma|intern|": "2026-10-22T11:00:01.351581+00:00",
   "id:microsoft|software engineer security identity|redmond wa|intern|": "2026-08-15T12:26:25.842128+00:00",
@@ -6897,6 +6901,7 @@
   "id:skydio|embedded software engineer winer|san mateo ca|intern|": "2026-10-21T11:00:01.239017+00:00",
   "id:skydio|embedded software engineer|san mateo ca|intern|su2027": "2026-10-13T23:00:01.932827+00:00",
   "id:skydio|embedded software engineer|san mateo ca|intern|wi2027": "2026-10-20T23:00:01.825166+00:00",
+  "id:skydio|frontend software engineer|san mateo ca|intern|su2027": "2026-10-22T23:00:01.180170+00:00",
   "id:skydio|hardware test reliability|san mateo ca": "2026-08-05T15:23:40.295027+00:00",
   "id:skydio|manufacturing software engineer|san mateo ca|intern|wi2027": "2026-10-14T23:00:00.770704+00:00",
   "id:skydio|mobile software engineer|san mateo ca|intern|su2027": "2026-10-20T23:00:01.825175+00:00",
@@ -10959,6 +10964,7 @@
   "li:4481254414": "2026-10-19T23:00:01.291832+00:00",
   "li:4481726850": "2026-10-20T23:00:01.825378+00:00",
   "li:4482018293": "2026-10-21T11:00:01.239017+00:00",
+  "li:4482483140": "2026-10-22T23:00:01.180477+00:00",
   "lv:acds:5a872bb7-8d9f-46e3-9e72-f5c69445e787": "2026-08-18T23:00:01.135958+00:00",
   "lv:acronaviation:19dbac7d-b4fb-4d21-9247-dc610bf55fed": "2026-09-19T23:00:01.997527+00:00",
   "lv:agatesoftware:c32e40b4-1df1-43f9-aee8-eff3ce85f0c1": "2026-07-24T19:18:38.036086+00:00",
@@ -13640,6 +13646,7 @@
   "sj:d1768aee-f240-4353-b609-278b04785c95": "2026-08-10T14:23:20.122589+00:00",
   "sj:d18679b9-d87f-4ffd-a1c2-72c408274aba": "2026-09-04T11:00:02.767174+00:00",
   "sj:d19faef5-69be-4dee-b896-16d292336009": "2026-09-23T23:00:01.575927+00:00",
+  "sj:d1a66cfc-7c5a-48aa-a8a4-d6b7e8e0aac5": "2026-10-22T23:00:01.180170+00:00",
   "sj:d1ab33ae-00ef-4a5c-9f42-af71a13f9f68": "2026-09-21T23:00:01.656056+00:00",
   "sj:d1c5d435-bda6-4975-b5d2-7a1c93170a05": "2026-08-20T11:00:01.186379+00:00",
   "sj:d1ce5eca-7313-4eee-b01a-088c01f2a85a": "2026-08-24T23:00:01.161790+00:00",
@@ -19978,6 +19985,6 @@
   "wk:twgai:AC536E5EE2": "2026-09-01T23:00:02.827361+00:00"
  },
  "last_am_sent": "2026-10-22",
- "last_pm_sent": "2026-10-21",
- "last_run": "2026-10-22T11:00:01.381921+00:00"
+ "last_pm_sent": "2026-10-22",
+ "last_run": "2026-10-22T23:00:01.211213+00:00"
 }
