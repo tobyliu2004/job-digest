@@ -1,5 +1,5 @@
 {
- "count": 19982,
+ "count": 19990,
  "keys": {
   "ab:abridge:3f07a457-dc14-4238-bf4e-5c33b5c1f883": "2026-08-15T23:00:01.600558+00:00",
   "ab:abridge:6569d8f7-bd0b-4bb0-a3af-37f83e19ec5e": "2026-09-17T23:00:01.675540+00:00",
@@ -262,6 +262,7 @@
   "amzn:10565667": "2026-10-01T23:00:01.324886+00:00",
   "amzn:10571004": "2026-10-07T23:00:01.303237+00:00",
   "amzn:10571374": "2026-10-07T11:00:03.566335+00:00",
+  "amzn:10586548": "2026-10-23T11:00:01.549891+00:00",
   "amzn:3066646": "2026-07-24T19:18:38.019384+00:00",
   "amzn:3101249": "2026-07-24T19:18:38.019202+00:00",
   "amzn:3136266": "2026-07-24T19:18:38.022332+00:00",
@@ -1347,6 +1348,7 @@
   "id:amazon|business intelligence engineer co op|seattle wa": "2026-07-24T19:18:38.019384+00:00",
   "id:amazon|business intelligence engineer co op|seattle wa|intern|": "2026-07-24T19:18:38.019384+00:00",
   "id:amazon|efa network software engineer i annapurna labs|seattle wa": "2026-07-24T19:18:38.028147+00:00",
+  "id:amazon|junior software development engineer jr developer program|detroit mi|intern|wi2027": "2026-10-23T11:00:01.549891+00:00",
   "id:amazon|operations finance rotational program|seattle wa arlington va": "2026-07-24T19:18:38.024173+00:00",
   "id:amazon|operations finance rotational program|seattle wa arlington va|intern|": "2026-07-24T19:18:38.024173+00:00",
   "id:amazon|quantum applied science quantum technologies team|boston ma sf|intern|su2027": "2026-09-23T11:00:00.835866+00:00",
@@ -5793,6 +5795,7 @@
   "id:palantir|forward deployed software engineer intel|washington dc|intern|wi2027": "2026-07-24T19:18:38.017469+00:00",
   "id:palantir|forward deployed software engineer us government|washington dc": "2026-08-12T17:00:44.818288+00:00",
   "id:palantir|forward deployed software engineer us government|washington dc|intern|su2028": "2026-08-12T17:00:44.818288+00:00",
+  "id:palantir|forward deployed software engineer warp speed|new york ny|intern|": "2026-10-23T11:00:01.550080+00:00",
   "id:palantir|forward deployed software engineer|chicago il": "2026-07-24T19:18:38.017485+00:00",
   "id:palantir|forward deployed software engineer|chicago il|intern|": "2026-07-24T19:18:38.017485+00:00",
   "id:palantir|forward deployed software engineer|new york ny": "2026-07-24T19:18:38.017502+00:00",
@@ -8055,6 +8058,7 @@
   "id:u s hunger|software engineering innovation|longwood fl|intern|sp2027": "2026-09-16T11:00:01.795762+00:00",
   "id:uber|software engineering uber career prep|san francisco ca seattle wa sunnyvale ca": "2026-07-24T19:18:38.022905+00:00",
   "id:uber|software engineering uber career prep|san francisco ca seattle wa sunnyvale ca|intern|su2027": "2026-07-24T19:18:38.022905+00:00",
+  "id:uber|software engineering us|san francisco ca|intern|": "2026-10-23T11:00:01.549964+00:00",
   "id:uber|software engineering|san francisco ca": "2026-07-24T19:18:38.018005+00:00",
   "id:uber|software engineering|san francisco ca|intern|": "2026-07-24T19:18:38.018005+00:00",
   "id:uber|software engineer|seattle wa sf sunnyvale ca|intern|": "2026-10-21T23:00:01.081557+00:00",
@@ -10962,9 +10966,11 @@
   "li:4480580025": "2026-10-17T23:00:01.498360+00:00",
   "li:4481236931": "2026-10-19T23:00:01.291881+00:00",
   "li:4481254414": "2026-10-19T23:00:01.291832+00:00",
+  "li:4481624537": "2026-10-23T11:00:01.550080+00:00",
   "li:4481726850": "2026-10-20T23:00:01.825378+00:00",
   "li:4482018293": "2026-10-21T11:00:01.239017+00:00",
   "li:4482483140": "2026-10-22T23:00:01.180477+00:00",
+  "li:4482819112": "2026-10-23T11:00:01.549964+00:00",
   "lv:acds:5a872bb7-8d9f-46e3-9e72-f5c69445e787": "2026-08-18T23:00:01.135958+00:00",
   "lv:acronaviation:19dbac7d-b4fb-4d21-9247-dc610bf55fed": "2026-09-19T23:00:01.997527+00:00",
   "lv:agatesoftware:c32e40b4-1df1-43f9-aee8-eff3ce85f0c1": "2026-07-24T19:18:38.036086+00:00",
@@ -11574,6 +11580,7 @@
   "sj:259c0c7d-c60b-40ad-936e-d5aef95bbb9f": "2026-09-03T23:00:02.870176+00:00",
   "sj:25c606c0-e37b-4e36-a6d9-5e9df8b3a2e7": "2026-09-14T23:00:06.983154+00:00",
   "sj:25d8c265-f1ed-4e2b-9729-18047088e3ff": "2026-08-25T11:00:01.336314+00:00",
+  "sj:25f26c89-68c7-42c7-8b1c-a1e4d61f5525": "2026-10-23T11:00:01.549891+00:00",
   "sj:26097b03-bc67-4a75-9a2f-c6281e00319c": "2026-08-27T03:04:09.128600+00:00",
   "sj:260e18c8-a6ea-420c-9bc3-bad1d2c4d4b7": "2026-09-01T11:00:01.122829+00:00",
   "sj:260ebea6-b3a6-4e5e-8824-71490c13d10f": "2026-09-04T23:00:01.254387+00:00",
@@ -16210,6 +16217,7 @@
   "url:simplify.jobs/jobs/click/255aad80-1a86-44ec-bf34-a8f924b6efdd": "2026-09-03T11:00:02.194460+00:00",
   "url:simplify.jobs/jobs/click/2583c13c-1003-4d90-a33c-cb634ef5ba6e": "2026-09-04T11:00:01.655475+00:00",
   "url:simplify.jobs/jobs/click/25c606c0-e37b-4e36-a6d9-5e9df8b3a2e7": "2026-09-14T23:00:06.983154+00:00",
+  "url:simplify.jobs/jobs/click/25f26c89-68c7-42c7-8b1c-a1e4d61f5525": "2026-10-23T11:00:01.549891+00:00",
   "url:simplify.jobs/jobs/click/26097b03-bc67-4a75-9a2f-c6281e00319c": "2026-08-27T03:04:09.128600+00:00",
   "url:simplify.jobs/jobs/click/260e18c8-a6ea-420c-9bc3-bad1d2c4d4b7": "2026-09-01T11:00:01.122829+00:00",
   "url:simplify.jobs/jobs/click/260ebea6-b3a6-4e5e-8824-71490c13d10f": "2026-09-04T23:00:01.254387+00:00",
@@ -19984,7 +19992,7 @@
   "wk:twgai:772CD136FF": "2026-09-01T23:00:02.827341+00:00",
   "wk:twgai:AC536E5EE2": "2026-09-01T23:00:02.827361+00:00"
  },
- "last_am_sent": "2026-10-22",
+ "last_am_sent": "2026-10-23",
  "last_pm_sent": "2026-10-22",
- "last_run": "2026-10-22T23:00:01.211213+00:00"
+ "last_run": "2026-10-23T11:00:01.581207+00:00"
 }
