@@ -1,5 +1,5 @@
 {
- "count": 20046,
+ "count": 20051,
  "keys": {
   "ab:abridge:3f07a457-dc14-4238-bf4e-5c33b5c1f883": "2026-08-15T23:00:01.600558+00:00",
   "ab:abridge:6569d8f7-bd0b-4bb0-a3af-37f83e19ec5e": "2026-09-17T23:00:01.675540+00:00",
@@ -220,6 +220,7 @@
   "ab:skydio:89bb6fee-3cd2-4e0b-a1c2-c73de8c1f9bd": "2026-10-22T23:00:01.180170+00:00",
   "ab:skydio:8a237302-3fe8-4403-b32b-7690f333ba52": "2026-10-20T23:00:01.825175+00:00",
   "ab:skydio:ae4a6f7d-a240-4fa2-8c8e-04cc906e4ef9": "2026-09-04T11:00:02.766772+00:00",
+  "ab:skydio:d79ccbaa-2901-4303-bd90-675db7802366": "2026-10-24T11:00:00.895667+00:00",
   "ab:skydio:f6320e9b-4eed-408d-8d37-d509fb0406ee": "2026-07-24T19:18:38.018379+00:00",
   "ab:skydio:ffc665c1-2aa6-4c2f-b04b-93a6fb7b5feb": "2026-10-14T23:00:00.770704+00:00",
   "ab:snowflake:4be290ae-dd9d-488c-9d90-56fcd69101ca": "2026-09-25T11:00:00.981082+00:00",
@@ -5147,6 +5148,7 @@
   "id:microsoft|software engineer security identity opportunities for university students redmond|washington dc": "2026-08-05T15:23:40.293385+00:00",
   "id:microsoft|software engineer security identity|cambridge ma|intern|": "2026-10-22T11:00:01.351581+00:00",
   "id:microsoft|software engineer security identity|redmond wa|intern|": "2026-08-15T12:26:25.842128+00:00",
+  "id:microsoft|software engineer security identity||intern|": "2026-10-24T11:00:00.895746+00:00",
   "id:microsoft|software engineering 6 month program|santa clara ca|intern|": "2026-09-18T23:00:01.676439+00:00",
   "id:microsoft|software engineering ctj ts|redmond wa|intern|": "2026-09-12T23:00:01.472757+00:00",
   "id:microsoft|software engineering ctj ts|reston va|intern|": "2026-09-12T23:00:01.472479+00:00",
@@ -11012,6 +11014,7 @@
   "li:4482819112": "2026-10-23T11:00:01.549964+00:00",
   "li:4483119936": "2026-10-23T23:00:00.961728+00:00",
   "li:4483140046": "2026-10-23T23:00:00.961781+00:00",
+  "li:4483178670": "2026-10-24T11:00:00.895667+00:00",
   "lv:acds:5a872bb7-8d9f-46e3-9e72-f5c69445e787": "2026-08-18T23:00:01.135958+00:00",
   "lv:acronaviation:19dbac7d-b4fb-4d21-9247-dc610bf55fed": "2026-09-19T23:00:01.997527+00:00",
   "lv:agatesoftware:c32e40b4-1df1-43f9-aee8-eff3ce85f0c1": "2026-07-24T19:18:38.036086+00:00",
@@ -13991,6 +13994,7 @@
   "sj:e95cee0e-a2ed-44d1-9017-9befd82e1561": "2026-08-17T23:00:01.776808+00:00",
   "sj:e968f97d-32d7-4c91-8d49-194045d74346": "2026-09-10T11:00:02.707849+00:00",
   "sj:e97a377e-d1c0-4278-86c7-389bacdaa737": "2026-09-11T23:00:01.457244+00:00",
+  "sj:e99d908a-9e6e-452f-978e-1efcac40a4ed": "2026-10-24T11:00:00.895667+00:00",
   "sj:e9b7e6e4-f5c7-447c-bd8d-3c9a764d5f44": "2026-09-17T23:00:01.676371+00:00",
   "sj:e9bbbfe9-e9ad-44fd-9576-86518357ea97": "2026-08-31T23:00:01.109391+00:00",
   "sj:e9cc1694-7911-45ac-988b-ff64e77ff9af": "2026-08-21T11:00:01.667290+00:00",
@@ -14548,6 +14552,7 @@
   "url:apply.careers.microsoft.com/careers/job/1970393557004819": "2026-09-24T23:00:01.350390+00:00",
   "url:apply.careers.microsoft.com/careers/job/1970393557041731": "2026-10-16T23:00:01.406718+00:00",
   "url:apply.careers.microsoft.com/careers/job/1970393557044765": "2026-10-22T11:00:01.351581+00:00",
+  "url:apply.careers.microsoft.com/careers/job/1970393557044771": "2026-10-24T11:00:00.895746+00:00",
   "url:apply.careers.microsoft.com/careers?filter_include_relocation=0&filter_include_remote=1&location=untied+states&pid=1970393556922922&query=intern&sort_by=relevance&start=0": "2026-08-15T12:26:25.841982+00:00",
   "url:apply.careers.microsoft.com/careers?filter_include_relocation=0&filter_include_remote=1&location=untied+states&pid=1970393556922923&query=intern&sort_by=relevance&start=0": "2026-08-15T12:26:25.842032+00:00",
   "url:apply.careers.microsoft.com/careers?filter_include_relocation=0&filter_include_remote=1&location=untied+states&pid=1970393556922929&query=intern&sort_by=relevance&start=0": "2026-08-15T12:26:25.842080+00:00",
@@ -20048,7 +20053,7 @@
   "wk:twgai:772CD136FF": "2026-09-01T23:00:02.827341+00:00",
   "wk:twgai:AC536E5EE2": "2026-09-01T23:00:02.827361+00:00"
  },
- "last_am_sent": "2026-10-23",
+ "last_am_sent": "2026-10-24",
  "last_pm_sent": "2026-10-23",
- "last_run": "2026-10-23T23:00:00.992642+00:00"
+ "last_run": "2026-10-24T11:00:00.926100+00:00"
 }
