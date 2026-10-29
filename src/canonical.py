@@ -454,6 +454,9 @@ def keys_for(job, *, include_legacy: bool = False) -> list[str]:
         simplify_uuid_key(job),
         canonical_url_key(job.apply_url),
         identity_key(job.company, job.title, job.location, job.season),
+        # The shortener link a markdown row arrived as, before
+        # github_md.resolve_short_links swapped in the employer URL.
+        canonical_url_key(getattr(job, "extra", {}).get("short_url", "")),
     ]
     if include_legacy:
         keys += canonical_legacy.legacy_keys_for(job)

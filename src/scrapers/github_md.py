@@ -27,8 +27,10 @@ from __future__ import annotations
 import html
 import logging
 import re
+from urllib.parse import urlsplit
 
-from ..http import get_text
+from .. import canonical
+from ..http import get_text, resolve_redirect
 from ..models import Job
 
 log = logging.getLogger(__name__)
@@ -67,6 +69,12 @@ _MD_LINK = re.compile(r"\[[^\]]*\]\((https?://[^)\s]+)\)")
 # Same shape, but capturing the label so a link can render as its text.
 _MD_LINK_LABEL = re.compile(r"\[([^\]]*)\]\((?:https?://[^)\s]+)\)")
 _TAG = re.compile(r"<[^>]+>")
+# Link shorteners a list wraps its apply links in. vanshb03 switched every row
+# to go.vansh.nyc on 2026-10-25. A short link names nothing about the posting,
+# and these lists carry no season either, so a shortened row matched none of
+# the keys stored when another source first sent the job: 26 jobs already
+# emailed went out again that morning, and more each day after.
+_SHORTENER_HOSTS = {"go.vansh.nyc"}
 _CARRY = "↳"
 _CLOSED_MARKERS = ("🔒",)
 
@@ -229,3 +237,33 @@ def fetch_one(session, source: dict) -> list[Job]:
     jobs = parse_markdown(text, source["name"], source.get("skip_sections", ()))
     log.info("%s: %d postings", source["name"], len(jobs))
     return jobs
+
+
+def resolve_short_links(session, jobs: list[Job], seen: dict) -> int:
+    """Swap shortener links for the employer URL they redirect to, in place.
+
+    This has to happen BEFORE clustering, unlike Simplify's click stubs: a
+    Simplify job carries its posting UUID, but a markdown row's apply URL is its
+    only hard identity, so a short link cannot join the employer's copy of the
+    job any other way.
+
+    A short link already in `seen` is left alone -- it was recorded when the
+    job was sent or recognised -- so redirect volume tracks new rows, not the
+    size of the list. The short URL is kept in `extra["short_url"]` so its key
+    is stored as well. A link that will not resolve keeps its short form, which
+    still works in a browser.
+    """
+    resolved = 0
+    for job in jobs:
+        if urlsplit(job.apply_url).netloc.lower() not in _SHORTENER_HOSTS:
+            continue
+        if canonical.canonical_url_key(job.apply_url) in seen:
+            continue
+        target = resolve_redirect(session, job.apply_url)
+        if not target:
+            log.warning("Keeping short link for %s - %s", job.company, job.title)
+            continue
+        job.extra["short_url"] = job.apply_url
+        job.apply_url = target
+        resolved += 1
+    return resolved

@@ -527,6 +527,12 @@ def main() -> int:
     results, dropped = filter_results(results, employer_list.listed)
     log.info("Employers: dropped %d posting(s) from unlisted companies", dropped)
 
+    # After the filters, so only rows that could be emailed cost a request.
+    shortened = github_md.resolve_short_links(
+        session, [j for r in results for j in r.jobs], store.keys)
+    if shortened:
+        log.info("Resolved %d short apply link(s)", shortened)
+
     clusters, collapsed, unusable = dedupe.cluster(results)
     unique = [c.job for c in clusters]
     log.info("Total scraped: %d | after cross-source dedup: %d (collapsed %d)",
@@ -542,6 +548,7 @@ def main() -> int:
     # emailed again on every future run.
     keys_for_job = {id(c.job): sorted(c.keys) for c in clusters}
     new_clusters = [c for c in clusters if not store.has_any(_seen_keys(c, legacy))]
+    _remember_short_links(clusters, new_clusters, store)
     new_clusters, repeats = dedupe.suppress_linkedin_repeats(new_clusters, clusters, store.keys)
     if repeats:
         log.info("LinkedIn: suppressed %d repeat(s) of direct-link postings", repeats)
@@ -788,6 +795,24 @@ def _run_catchup(session, unique, failures, label, smtp_user, smtp_password, rec
 
     log.info("Catch-up complete. State unchanged; normal digests continue as usual.")
     return 0
+
+
+def _remember_short_links(clusters, new_clusters, store) -> None:
+    """Record the short link of every job recognised as already sent.
+
+    Without this a repeat is never stored under its short link, so
+    resolve_short_links would spend a request on it again every run. Only the
+    short-link key is added: it names one row of one list, so unlike the
+    tier-2 key (see _keys_to_store) it cannot match a different posting.
+    """
+    fresh = {id(c) for c in new_clusters}
+    for group in clusters:
+        if id(group) in fresh:
+            continue
+        for job in group.members:
+            short = job.extra.get("short_url")
+            if short:
+                store.add([canonical.canonical_url_key(short)])
 
 
 def _keys_to_store(job: Job, keys_for_job: dict) -> list[str]:
